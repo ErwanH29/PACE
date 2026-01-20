@@ -1,15 +1,6 @@
-import numpy as np
-import matplotlib.pyplot as plt
+"""Example script showing how to couple codes using Venice"""
 
 from venice import Venice, dynamic_kick
-
-from amuse.units import units, constants, nbody_system
-from amuse.datamodel import Particles
-from amuse.ic.plummer import new_plummer_model
-from amuse.ic.brokenimf import MultiplePartIMF
-from amuse.community.seba.interface import SeBa
-from amuse.community.sse.interface import SSE
-from amuse.community.ph4.interface import ph4
 
 
 def gravity_stellar (gravity_code, stellar_code, converter, timestep, verbose=False):
@@ -47,8 +38,8 @@ def gravity_stellar (gravity_code, stellar_code, converter, timestep, verbose=Fa
 def bridge_to_potential (gravity_code, potential, converter, timestep,
         verbose=False):
     '''
-    Create a Venice system coupling a gravity code to a background potential using a
-    classic bridge
+    Create a Venice system coupling a gravity code to a background potential
+    using a classic bridge
     '''
 
     # Initialize gravity code

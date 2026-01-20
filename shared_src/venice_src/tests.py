@@ -1,38 +1,35 @@
+"""Test script for Venice code coupling framework"""
+
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 
 from venice import Venice
 
-from amuse.units import units, constants, nbody_system
-from amuse.datamodel import Particles
+from amuse.units import units, nbody_system
 from amuse.ic.plummer import new_plummer_model
 from amuse.ic.brokenimf import MultiplePartIMF
 from amuse.community.seba.interface import SeBa
-from amuse.community.sse.interface import SSE
 from amuse.community.ph4.interface import ph4
-
-import time
 
 
 kroupa = MultiplePartIMF(
-    mass_boundaries=[0.08, 0.5, 8.]|units.MSun,
-    alphas=[-1.3, -2.3])
+    mass_boundaries=[0.08, 0.5, 8.] | units.MSun,
+    alphas=[-1.3, -2.3]
+    )
 
 
 def make_cluster (N, R):
-
+    """Create a star cluster with N stars within radius R"""
     mass = kroupa.next_mass(N)
-
     cluster = new_plummer_model(N, nbody_system.nbody_to_si(mass.sum(), R))
-
     cluster.mass = mass
     cluster.mass[0] = 50. | units.MSun
-
     return cluster
 
 
 def make_gravity_stellar (converter, timestep, verbose=False):
-
+    """Bridge a gravity code to a stellar evolution code using Venice"""
     stellar = SeBa()
 
 
@@ -54,7 +51,7 @@ def make_gravity_stellar (converter, timestep, verbose=False):
 
 
 def test_linear_vs_interlaced (N, R, timesteps, end_time):
-
+    """Compare linear and interlaced coupling schemes"""
     cluster_l = make_cluster(N, R)
     cluster_i = cluster_l.copy()
 
@@ -122,7 +119,7 @@ def test_linear_vs_interlaced (N, R, timesteps, end_time):
 
 
 def test_convergence (N, R, timesteps, end_time):
-
+    """Test convergence of the coupled system with decreasing timestep"""
     cluster = make_cluster(N, R)
 
     converter = nbody_system.nbody_to_si(cluster.mass.sum(), R)

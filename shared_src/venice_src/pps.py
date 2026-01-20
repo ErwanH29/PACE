@@ -1,3 +1,5 @@
+"""Module implementing pebble accretion and Type I migration models"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -6,8 +8,10 @@ from amuse.datamodel import Particles, Particle
 
 from venice import Venice
 
-class PebbleAccretion:
 
+
+class PebbleAccretion:
+    """Class implementing a pebble accretion model"""
     def __init__ (self):
 
         # Model data
@@ -105,7 +109,7 @@ class PebbleAccretion:
 
 
 class TypeIMigration:
-
+    """Class implementing a Type I migration model"""
     def __init__ (self):
 
         self.planets = Particles()
@@ -185,12 +189,21 @@ def setup_single_pps (timestep, verbose=False):
 
     # Add channels
     # PebbleAccretion informs TypeIMigration of updated mass
-    system.add_channel(0, 1, from_attributes=['mass'], to_attributes=['mass'],
-        from_set_name='planets', to_set_name='planets')
+    system.add_channel(
+        0, 1, 
+        from_attributes=['mass'], 
+        to_attributes=['mass'],
+        from_set_name='planets', 
+        to_set_name='planets'
+        )
     # TypeIMigration informs PebbleAccretion of updated semimajor axis
-    system.add_channel(1, 0, from_attributes=['semimajor_axis'], 
+    system.add_channel(
+        1, 0, 
+        from_attributes=['semimajor_axis'], 
         to_attributes=['semimajor_axis'],
-        from_set_name='planets', to_set_name='planets')
+        from_set_name='planets', 
+        to_set_name='planets'
+        )
 
     return system, pebble_accretion, typeI_migration
 

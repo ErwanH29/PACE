@@ -1,3 +1,6 @@
+"""Module implementing a symmetric matrix with AMUSE units"""
+
+
 import numpy as np
 
 

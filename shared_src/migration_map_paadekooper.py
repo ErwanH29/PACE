@@ -1,6 +1,5 @@
 import numpy as np
 import params as ps
-import scipy as sci
 import matplotlib.pyplot as plt
 
 Z_sol = 0.0196/100
@@ -42,10 +41,13 @@ def Kp(p):
     return Kp
 
 def torque_cbaro(beta,alpha,gamma,p_vis):
-    return torque_hs_baro(alpha,gamma)*Fp(p_vis)*Gp(p_vis)+(1-Kp(p_vis))*torque_c_lin_baro(alpha,gamma)
+    return torque_hs_baro(alpha,gamma)*Fp(p_vis)*Gp(p_vis)+(1-Kp(p_vis)) \
+          *torque_c_lin_baro(alpha,gamma)
 
 def torque_cent(beta,alpha,gamma,p_vis,p_therm):
-    torque_c_ent = torque_hs_ent(beta,alpha,gamma)*Fp(p_vis)*Fp(p_therm)*np.sqrt(Gp(p_vis)*Gp(p_therm))+np.sqrt((1-Kp(p_vis))*(1-Kp(p_therm)))*torque_c_lin_ent(beta,alpha,gamma)
+    torque_c_ent = torque_hs_ent(beta,alpha,gamma)*Fp(p_vis)*Fp(p_therm) \
+        *np.sqrt(Gp(p_vis)*Gp(p_therm))+np.sqrt((1-Kp(p_vis))*(1-Kp(p_therm))) \
+        *torque_c_lin_ent(beta,alpha,gamma)
     return torque_c_ent
 
 def torque_tot(beta,alpha,gamma,p_vis,p_therm,K):
@@ -101,7 +103,7 @@ def fun_tem(M_star, R_star, T_star, r, alpha, T_prec, sigma, Z):
         E_dot = 9/4*sigma*nu_vis*omega**2
 
         T_cd  = 10 # unit: K
-        T_s4   = T_star**4*(2/3/np.pi*(R_star/r)**3+0.5*(R_star/r)**2* H/r*(9/7-1))+T_cd**4
+        T_s4  = T_star**4*(2/3/np.pi*(R_star/r)**3+0.5*(R_star/r)**2* H/r*(9/7-1))+T_cd**4
         
         T = ((0.5*(3/8*tau_R+1/2/tau_P)*E_dot+ps.sigma_SB*T_s4)/ps.sigma_SB)**(1/4)
         if np.isinf(T):

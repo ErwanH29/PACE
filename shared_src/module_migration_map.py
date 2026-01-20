@@ -1,11 +1,34 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from amuse.units import units, constants
 from amuse.datamodel import Particles, Particle, new_regular_grid
 from venice_src.venice import Venice
 
-from extra_funcs import *
-from migration_map_paadekooper import cal_tau_I, cal_temperature
+from extra_funcs import (
+    pre_ndisk, pre_dt, dynamical_mass, 
+    Rhills, sound_speed, Rdisk0
+    )
+from migration_map_paadekooper import cal_tau_I
+
+def check_resonance(planets, planetsmass, j_values):
+    """
+    Ensure that no adjacent planets cross resonance locations.
+    """
+    for i in range(len(planets) - 1):
+        inner = planets[i]
+        outer = planets[i+1]
+        mass_inner = planetsmass[i]
+        mass_outer = planetsmass[i+1]
+        j = j_values[i]  # Resonance value (j+1):j
+
+        # Minimum ratio of semi-major axes to maintain resonance
+        min_ratio = ((j + 1) / j) ** (2 / 3)
+
+        # If the planets are about to cross the resonance, adjust the two planets
+        if outer / inner < min_ratio:
+            inner05 = (mass_inner*inner**0.5+mass_outer*outer**0.5)/(mass_inner+mass_outer*((j+1)/j)**(1/3))
+            planets[i] = inner05**2
+            planets[i+1] = planets[i] * ((j+1)/j)**(2/3)
+    return planets
 
 class nonisothermal_Migration:
 
@@ -29,7 +52,7 @@ class nonisothermal_Migration:
         self.dt = pre_dt
 
         self.eta = 0.1 # control the timestep
-
+        
     def set_time_step(self, tau_I, model_time_i, end_time):
         dt_hill = np.log(1+min(Rhills(self.planets.dynamical_mass,self.star.mass,self.planets.semimajor_axis)/self.planets.semimajor_axis))*tau_I
         dt_min = self.eta* tau_I
@@ -75,6 +98,9 @@ class nonisothermal_Migration:
                 ap = self.planets[i].semimajor_axis
                 a_dot = -ap/tau_a[i]
                 self.planets[i].semimajor_axis += a_dot * dt
+
+            j_values = np.ceil(((self.planets.semimajor_axis[1:]/self.planets.semimajor_axis[:-1])**(3/2)-1+0.01)**(-1))
+            self.planets.semimajor_axis = check_resonance(self.planets.semimajor_axis, self.planets.dynamical_mass, j_values)
 
             if dt == 0|units.s:
                 break
@@ -252,5 +278,3 @@ if __name__ == '__main__':
     cbar = plt.colorbar(pcm, cax=cax, ticks=ticks,label=r'$\dot{a}/a$')
 
     system = run_single_pps(ax, disk, planets, M_star, R_star, dt, end_time, dt_plot)
-
-    plt.savefig("migration_map.png",dpi=500)

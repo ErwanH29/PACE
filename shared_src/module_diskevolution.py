@@ -1,18 +1,20 @@
-# use vader (Krumholz+2015) and pedisk (Birnstiel+2012, Wilhelm+2023) to evolve gas and dust disk
+"""Evolve gas and dust disk using Vader (Krumholz+2015) and pedisk (Birnstiel+2012, Wilhelm+2023)"""
+
+
 import numpy as np
 import matplotlib.pyplot as plt
 
 from amuse.units import units, constants
-from amuse.datamodel import Particles, Particle, new_regular_grid
+from amuse.datamodel import Particle, new_regular_grid
 
 from venice_src.venice import Venice
 from amuse.community.vader.interface import Vader
 
-from extra_funcs import *
+from extra_funcs import pre_ndisk
 
 class DiskGasDustEvolution:
     def __init__(self):
-        self.code = Vader(mode='pedisk_dusty', redirection='none')
+        self.code = Vader(mode='pedisk_dusty')#, redirection='none')  # Use redirection for debugging
         self.code.module_time = 0|units.Myr
         self.model_time = 0 | units.Myr
         self.star = Particle(mass=1|units.MSun)
@@ -45,12 +47,12 @@ class DiskGasDustEvolution:
         Mass-dependent X-ray luminosity of classical T-Tauri stars according to 
         Flaccomio et al. 2012 (typical luminosities)
         '''
-        if self.model_time>(1|units.Myr):
-            Lx_t = 10.**( 1.7*np.log10(self.star.mass.value_in(units.MSun)) + 30. ) * (self.model_time.value_in(units.Myr))**(-2/5)\
-                    | units.erg / units.s
+        star_mass = self.star.mass.value_in(units.MSun)
+        time_Myr  = self.model_time.value_in(units.Myr)
+        if time_Myr > 1.:
+            Lx_t = 10.**( 1.7*np.log10(star_mass) + 30. ) * (time_Myr)**(-2/5) | units.erg / units.s
         else:
-            Lx_t = 10.**( 1.7*np.log10(self.star.mass.value_in(units.MSun)) + 30. )\
-                    | units.erg / units.s
+            Lx_t = 10.**( 1.7*np.log10(star_mass) + 30. ) | units.erg / units.s
         return Lx_t
         
     @property
@@ -62,6 +64,7 @@ class DiskGasDustEvolution:
 
 
     def evolve_model(self, end_time):
+        """Evolve the disk including photoevaporative effects till end_time."""
         # update internal photo-evaporation automatically
         self.code.set_parameter(0, ( self.inner_photoevap_rate ).value_in(units.g/units.s))
 
@@ -133,9 +136,9 @@ def run_single_pps (R_in, R_out, star_mass, star_radius, Teff, alpha, alpha_acc,
     viscous.initialize_keplerian_grid(
         500,                # grid cells
         False,              # True for linear, False for logarithmic
-        R_in,    # inner disk edge
-        R_out,   # outer disk edge
-        star_mass     # central mass
+        R_in,               # inner disk edge
+        R_out,              # outer disk edge
+        star_mass           # central mass
     )
 
     mu = 2.3 # mean molecular weight

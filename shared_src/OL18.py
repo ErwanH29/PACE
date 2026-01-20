@@ -1,5 +1,7 @@
 import numpy as np
 import sys
+import warnings
+warnings.filterwarnings("ignore")
 
 #Feel free to use, please cite
 # - Liu & Ormel (2018) [Paper I]
@@ -424,5 +426,3 @@ def rate_R (mode='', **pars):
     epseta = epsilon (mode, times_eta=True, **pars)
     tau = pars['tau']
     return 4*np.pi *tau *epseta
-
-

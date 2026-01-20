@@ -1,13 +1,16 @@
 import numpy as np
-from amuse.units import units
+from amuse.units import constants, units
 from amuse.datamodel import Particles, new_regular_grid
 from venice_src.venice import Venice
 
-from extra_funcs import *
-from module_pebbleaccretion_OL18 import *
-from module_diskevolution import *
-from module_migration_map import *
+from module_pebbleaccretion_OL18 import PebbleGasAccretion
+from module_diskevolution import DiskGasDustEvolution, init_viscous
+from module_migration_map import (
+    nonisothermal_Migration, pre_ndisk, 
+    sound_speed, dynamical_mass
+)
 import subprocess as sp
+
 
 def setup_single_pps (timestep, verbose=False):
 
@@ -30,46 +33,86 @@ def setup_single_pps (timestep, verbose=False):
     system.timestep_matrix[0,2] = timestep
     system.timestep_matrix[1,2] = timestep
 
-    system.add_channel(0,2, from_attributes = ['core_mass'], 
-                to_attributes = ['core_mass'],
-                from_set_name = 'planets', to_set_name = 'planets')
-                
-    system.add_channel(0,2, from_attributes = ['envelope_mass'], 
-                to_attributes = ['envelope_mass'],
-                from_set_name = 'planets', to_set_name = 'planets')
-    
-    system.add_channel(1,0, from_attributes = ['surface_solid'], 
-                to_attributes = ['surface_solid'], 
-                from_set_name = 'disk', to_set_name = 'disk')
-    
-    system.add_channel(1,0, from_attributes = ['surface_gas'], 
-                to_attributes = ['surface_gas'], 
-                from_set_name = 'disk', to_set_name = 'disk')
-    
-    system.add_channel(1,2, from_attributes = ['surface_solid'], 
-                to_attributes = ['surface_solid'], 
-                from_set_name = 'disk', to_set_name = 'disk')
+    system.add_channel(
+        0,2, 
+        from_attributes = ['core_mass'], 
+        to_attributes = ['core_mass'],
+        from_set_name = 'planets', 
+        to_set_name = 'planets'
+    )
 
-    system.add_channel(1,2, from_attributes = ['surface_gas'], 
-                to_attributes = ['surface_gas'], 
-                from_set_name = 'disk', to_set_name = 'disk')
+    system.add_channel(
+        0,2,
+        from_attributes = ['envelope_mass'],
+        to_attributes = ['envelope_mass'],
+        from_set_name = 'planets',
+        to_set_name = 'planets'
+    )
     
-    system.add_channel(1,2, from_attributes = ['vd'], 
-                to_attributes = ['vd'], 
-                from_set_name = 'disk', to_set_name = 'disk')
-    
-    system.add_channel(1,2, from_attributes = ['st'], 
-                to_attributes = ['st'], 
-                from_set_name = 'disk', to_set_name = 'disk')
+    system.add_channel(
+        1,0,
+        from_attributes = ['surface_solid'],
+        to_attributes = ['surface_solid'],
+        from_set_name = 'disk', 
+        to_set_name = 'disk'
+    )
 
-    system.add_channel(2,0, from_attributes=['semimajor_axis'], 
-                to_attributes=['semimajor_axis'],
-                from_set_name='planets', to_set_name='planets')
+    system.add_channel(
+        1,0, 
+        from_attributes = ['surface_gas'],
+        to_attributes = ['surface_gas'],
+        from_set_name = 'disk', 
+        to_set_name = 'disk'
+    )
+
+    system.add_channel(
+        1,2, 
+        from_attributes = ['surface_solid'], 
+        to_attributes = ['surface_solid'], 
+        from_set_name = 'disk', 
+        to_set_name = 'disk'
+    )
+
+    system.add_channel(
+        1,2, 
+        from_attributes = ['surface_gas'], 
+        to_attributes = ['surface_gas'], 
+        from_set_name = 'disk', 
+        to_set_name = 'disk'
+    )
+
+    system.add_channel(
+        1,2, 
+        from_attributes = ['vd'], 
+        to_attributes = ['vd'], 
+        from_set_name = 'disk', 
+        to_set_name = 'disk'
+    )
+
+    system.add_channel(
+        1,2, 
+        from_attributes = ['st'], 
+        to_attributes = ['st'], 
+        from_set_name = 'disk', 
+        to_set_name = 'disk'
+    )
+
+    system.add_channel(
+        2,0, 
+        from_attributes=['semimajor_axis'], 
+        to_attributes=['semimajor_axis'],
+        from_set_name='planets', 
+        to_set_name='planets'
+    )
 
     return system, pebble_gas_accretion, disk_gas_evolution, migration
 
-def run_single_pps (fDG, FeH, mu, v_frag, alpha, alpha_acc, gamma, temp1, beta_T, Rdisk_in, Rdisk_out, stokes_number, planets, star_mass, 
-                    M_dot_ph_ex, t_birth, dt, times, N_snapshot, filename):
+def run_single_pps(
+    fDG, FeH, mu, v_frag, alpha, alpha_acc, gamma, temp1, 
+    beta_T, Rdisk_in, Rdisk_out, stokes_number, planets, 
+    star_mass, M_dot_ph_ex, t_birth, dt, times, N_snapshot, 
+    filename
+    ):
     # initialize venice
     system,_,_,_ = setup_single_pps(dt)
 
@@ -77,13 +120,21 @@ def run_single_pps (fDG, FeH, mu, v_frag, alpha, alpha_acc, gamma, temp1, beta_T
     viscous = system.codes[1].code
     viscous.initialize_keplerian_grid(
         pre_ndisk,                # grid cells
-        False,              # True for linear, False for logarithmic
-        Rdisk_in,    # inner disk edge
-        1000|units.au,   # outer disk edge
-        star_mass     # central mass
+        False,                    # True for linear, False for logarithmic
+        Rdisk_in,                 # inner disk edge
+        1000|units.au,            # outer disk edge
+        star_mass                 # central mass
     )
 
-    viscous = init_viscous(viscous, alpha, alpha_acc, mu, M_dot_ph_ex[0], star_mass, v_frag)
+    viscous = init_viscous(
+        viscous, 
+        alpha, 
+        alpha_acc, 
+        mu, 
+        M_dot_ph_ex[0], 
+        star_mass, 
+        v_frag
+        )
 
     disk_mass   = 0.1 * star_mass
     disk_radius = Rdisk_out
