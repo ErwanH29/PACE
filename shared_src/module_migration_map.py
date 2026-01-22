@@ -1,4 +1,5 @@
 import numpy as np
+#import matplotlib.pyplot as plt
 from amuse.units import units, constants
 from amuse.datamodel import Particles, Particle, new_regular_grid
 from venice_src.venice import Venice
@@ -249,32 +250,3 @@ if __name__ == '__main__':
 
     Z=np.array(Z)
     Mig_rate=np.array(Mig_rate)
-
-    fig = plt.figure(0,figsize=(10,8))
-    ax = plt.subplot(2,1,1)
-
-    import matplotlib.colors as colors
-    levels = np.linspace(-1e-5,1e-5,200)
-    # cnt = ax.contourf(X, Y, Z, levels=levels,extend='both', cmap='RdBu_r')
-    lnrwidth = 1e-8
-    shadeopts = {'cmap': 'RdBu_r', 'shading': 'gouraud'}
-    colormap = 'RdBu_r'
-    gain = 1e-5
-    pcm = ax.pcolormesh(X, Y, Mig_rate,
-                        norm=colors.AsinhNorm(linear_width=lnrwidth,
-                                                vmin=-gain, vmax=gain),
-                        **shadeopts)
-    plt.yscale('log')
-    plt.xscale('log')
-    # plt.yticks([1,3,10,30],[1,3,10,30])
-    # plt.ylim(0.1,1e3)
-    plt.xlabel(r'$r[AU]$')
-    plt.ylabel(r'$M_p[M_\oplus]$')
-
-    from mpl_toolkits.axes_grid1 import make_axes_locatable
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    ticks = np.array([-1e-5,-1e-6,-1e-7,-1e-8,1e-8,1e-7,1e-6,1e-5])
-    cbar = plt.colorbar(pcm, cax=cax, ticks=ticks,label=r'$\dot{a}/a$')
-
-    system = run_single_pps(ax, disk, planets, M_star, R_star, dt, end_time, dt_plot)

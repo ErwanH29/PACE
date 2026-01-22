@@ -115,102 +115,106 @@ else:
         gamma=gamma
     )
 
+def main():
+    USE_SLURM = 0
+    HILL_SEP  = 20
+    tbirth_rand = 0.*np.ones(ndisks) # unit: Myr
+    n_jobs = 1
+    print(f"Number of processes being used in parallel: {n_jobs}")
 
-USE_SLURM = 0
-HILL_SEP  = 20
-tbirth_rand = 0.*np.ones(ndisks) # unit: Myr
-n_jobs = 1
-print(f"Number of processes being used in parallel: {n_jobs}")
+    ctx = mp.get_context("spawn")
+    pool = ctx.Pool(processes=int(n_jobs )) # number of processes <---------------
+    results=[]
+    for i in range(ndisks):
+        filename = datafile +'%06d'%i
+        if ((os.path.exists(filename+'_planet.npz'))*(os.path.exists(filename+'_disk.npz'))==1):
+            print(filename, 'exist, continue!')
+            continue
 
-ctx = mp.get_context("fork")
-pool = ctx.Pool(processes=int(n_jobs )) # number of processes <---------------
-results=[]
-for i in range(ndisks):
-    filename = datafile +'%06d'%i
-    if ((os.path.exists(filename+'_planet.npz'))*(os.path.exists(filename+'_disk.npz'))==1):
-        print(filename, 'exist, continue!')
-        continue
+        M_star    = star_mass[i] | units.MSun
+        FeH       = FeH_rand[i]    # initial metalicity, default: 0
+        alpha     = alpha_rand[i]  # alpha plarameter, default: 2e-3
+        alpha_acc = alpha_acc_rand[i]
+        Rdisk_in  = Rdisk_in_rand[i]  | units.AU
+        Rdisk_out = Rdisk_out_rand[i] | units.AU
+        t_birth   = tbirth_rand[i] | units.Myr
 
-    M_star    = star_mass[i] | units.MSun
-    FeH       = FeH_rand[i]    # initial metalicity, default: 0
-    alpha     = alpha_rand[i]  # alpha plarameter, default: 2e-3
-    alpha_acc = alpha_acc_rand[i]
-    Rdisk_in  = Rdisk_in_rand[i]  | units.AU
-    Rdisk_out = Rdisk_out_rand[i] | units.AU
-    t_birth   = tbirth_rand[i] | units.Myr
+        ### Initialise planet embryos. Assume start at some Hill-radii separation
+        Nplanets = np.random.randint(1, 12)  # number of planets
+        planet_masses = [pmass_rand[i] for _ in range(Nplanets)] | units.MEarth
+        embryo_separations = [ ]
+        for planet in range(Nplanets):
+            if planet == 0:
+                sma = HILL_SEP * Rdisk_in
+                embryo_separations.append(sma.value_in(units.AU))
+            else:
+                Rhill = Rhills(
+                    Mp=planet_masses[planet],
+                    Mstar=M_star,
+                    ap=embryo_separations[-1] | units.AU
+                )
+                new_min = HILL_SEP * Rhill.value_in(units.au) + embryo_separations[-1]
+                new_sma = np.random.uniform(new_min, Rdisk_out.value_in(units.au))  # | units.AU
+                if new_sma >= Rdisk_out.value_in(units.au):
+                    print(f"Reached disk outer edge at planet {planet}, stopping embryo placement.")
+                    break
+                embryo_separations.append(new_sma)
 
-    ### Initialise planet embryos. Assume start at some Hill-radii separation
-    Nplanets = np.random.randint(1, 12)  # number of planets
-    planet_masses = [pmass_rand[i] for _ in range(Nplanets)] | units.MEarth
-    embryo_separations = [ ]
-    for planet in range(Nplanets):
-        if planet == 0:
-            sma = HILL_SEP * Rdisk_in
-            embryo_separations.append(sma.value_in(units.AU))
-        else:
-            Rhill = Rhills(
-                Mp=planet_masses[planet],
-                Mstar=M_star,
-                ap=embryo_separations[-1] | units.AU
+        Nplanets = len(embryo_separations)
+        embryo_separations = np.array(embryo_separations) | units.AU
+        planet_masses = planet_masses[:Nplanets]
+        print(f"Disk {i}: Initialised {Nplanets} planets.")
+
+        planets = Particles(Nplanets,
+            core_mass=planet_masses,
+            envelope_mass = 0|units.g,
+            semimajor_axis = embryo_separations,
+            isohist = False # it will become true when planet first reach pebble isolation mass
+        )
+        planets.add_calculated_attribute('dynamical_mass', dynamical_mass)
+
+        
+        # temp1 = 150*star_mass[i]**((2*beta_L-1)/7) | units.K
+        temp1 = 150. * (M_star.value_in(units.MSun))**(1/4) | units.K
+        M_dot_ph_ex = np.array(M_dot_exts[i]) | units.MSun/units.yr
+        times = np.array(star_ages[i]) | units.kyr
+        if len(M_dot_ph_ex) != len(times):
+            raise ValueError('error: error with reading cluster data!')
+
+        dt = 1 | units.kyr # timestep of the matrix (fixed)
+        N_plot_disk = 20 # number of saved snapshots
+
+        print(
+            'fDG:', fDG, 
+            'FeH:', FeH, 
+            'alpha:', alpha, 
+            'alpha_acc:', alpha_acc, 
+            'gamma:', gamma, 
+            'temp1:', temp1.value_in(units.K), 
+            'betaT:', beta_T, 
+            'R_in:', Rdisk_in_rand[i], 
+            'R_out:', Rdisk_out_rand[i], 
+            'St:', stokes_number, 
+            'star_mass:', star_mass[i], 
+            't_birth:', tbirth_rand[i], 
+            'psma:', psma_rand[i]
             )
-            new_min = HILL_SEP * Rhill.value_in(units.au) + embryo_separations[-1]
-            new_sma = np.random.uniform(new_min, Rdisk_out.value_in(units.au))  # | units.AU
-            if new_sma >= Rdisk_out.value_in(units.au):
-                print(f"Reached disk outer edge at planet {planet}, stopping embryo placement.")
-                break
-            embryo_separations.append(new_sma)
+        argL = (
+            fDG, FeH, mu, v_frag, alpha, 
+            alpha_acc, gamma, temp1, beta_T, 
+            Rdisk_in, Rdisk_out, stokes_number, 
+            planets, M_star, M_dot_ph_ex, t_birth, 
+            dt, times, N_plot_disk, filename
+            )
+        results.append (pool.apply_async(run_single_pps, argL))
 
-    Nplanets = len(embryo_separations)
-    embryo_separations = np.array(embryo_separations) | units.AU
-    planet_masses = planet_masses[:Nplanets]
-    print(f"Disk {i}: Initialised {Nplanets} planets.")
+    # clean up
+    pool.close()
+    pool.join()
 
-    planets = Particles(Nplanets,
-        core_mass=planet_masses,
-        envelope_mass = 0|units.g,
-        semimajor_axis = embryo_separations,
-        isohist = False # it will become true when planet first reach pebble isolation mass
-    )
-    planets.add_calculated_attribute('dynamical_mass', dynamical_mass)
-
+    planet_results = np.array([i.get() for i in results])
+    print(planet_results)
     
-    # temp1 = 150*star_mass[i]**((2*beta_L-1)/7) | units.K
-    temp1 = 150. * (M_star.value_in(units.MSun))**(1/4) | units.K
-    M_dot_ph_ex = np.array(M_dot_exts[i]) | units.MSun/units.yr
-    times = np.array(star_ages[i]) | units.kyr
-    if len(M_dot_ph_ex) != len(times):
-        raise ValueError('error: error with reading cluster data!')
-
-    dt = 1 | units.kyr # timestep of the matrix (fixed)
-    N_plot_disk = 20 # number of saved snapshots
-
-    print(
-        'fDG:', fDG, 
-        'FeH:', FeH, 
-        'alpha:', alpha, 
-        'alpha_acc:', alpha_acc, 
-        'gamma:', gamma, 
-        'temp1:', temp1.value_in(units.K), 
-        'betaT:', beta_T, 
-        'R_in:', Rdisk_in_rand[i], 
-        'R_out:', Rdisk_out_rand[i], 
-        'St:', stokes_number, 
-        'star_mass:', star_mass[i], 
-        't_birth:', tbirth_rand[i], 
-        'psma:', psma_rand[i]
-        )
-    argL = (
-        fDG, FeH, mu, v_frag, alpha, 
-        alpha_acc, gamma, temp1, beta_T, 
-        Rdisk_in, Rdisk_out, stokes_number, 
-        planets, M_star, M_dot_ph_ex, t_birth, 
-        dt, times, N_plot_disk, filename
-        )
-    results.append (pool.apply_async(run_single_pps, argL))
-
-# clean up
-pool.close()
-pool.join()
-
-planet_results = np.array([i.get() for i in results])
-print(planet_results)
+if __name__ == "__main__":
+    mp.freeze_support()  # harmless on Linux; required on Windows/frozen apps
+    main()

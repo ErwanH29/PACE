@@ -114,7 +114,7 @@ def run_single_pps(
     filename
     ):
     # initialize venice
-    system,_,_,_ = setup_single_pps(dt)
+    system,_,disk_gas_evolution,_ = setup_single_pps(dt)
 
     # initialize disk evolution (code 1)
     viscous = system.codes[1].code
@@ -258,6 +258,7 @@ def run_single_pps(
                 stokes_number = stokes_number, star_mass = star_mass.value_in(units.MSun), t_birth=t_birth.value_in(units.Myr))
 
     system.stop()
+    disk_gas_evolution.code.stop()
     return 0
 
 
