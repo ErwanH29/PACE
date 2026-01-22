@@ -1,14 +1,11 @@
 import numpy as np
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 from amuse.units import units, constants
 from amuse.datamodel import Particles, Particle, new_regular_grid
 from venice_src.venice import Venice
 
-from extra_funcs import (
-    pre_ndisk, pre_dt, dynamical_mass, 
-    Rhills, sound_speed, Rdisk0
-    )
-from migration_map_paadekooper import cal_tau_I
+from extra_funcs import *
+from migration_map_paadekooper import cal_tau_I, cal_temperature
 
 def check_resonance(planets, planetsmass, j_values):
     """
@@ -55,9 +52,12 @@ class nonisothermal_Migration:
         self.eta = 0.1 # control the timestep
         
     def set_time_step(self, tau_I, model_time_i, end_time):
-        dt_hill = np.log(1+min(Rhills(self.planets.dynamical_mass,self.star.mass,self.planets.semimajor_axis)/self.planets.semimajor_axis))*tau_I
-        dt_min = self.eta* tau_I
-        dt = min(abs(dt_hill), abs(end_time-model_time_i), abs(dt_min))
+        if np.isinf(tau_I.value_in(units.kyr)):
+            dt = end_time-model_time_i
+        else:
+            dt_hill = np.log(1+min(Rhills(self.planets.dynamical_mass,self.star.mass,self.planets.semimajor_axis)/self.planets.semimajor_axis))*tau_I
+            dt_min = self.eta* tau_I/800
+            dt = min(abs(dt_hill)/5, abs(end_time-model_time_i), abs(dt_min))
         return dt
 
     def access_migration_map(self, rp, Mp):
@@ -92,16 +92,19 @@ class nonisothermal_Migration:
                     _, rate = self.access_migration_map(ap, self.planets[i].dynamical_mass)
                     tau_a[i] = -rate**-1
 
-            dt = self.set_time_step(min(abs(tau_a)), model_time_i, end_time)
+            dt = self.set_time_step(min(tau_a), model_time_i, end_time)
             model_time_i += dt
 
             for i in range(len(self.planets)):
                 ap = self.planets[i].semimajor_axis
                 a_dot = -ap/tau_a[i]
                 self.planets[i].semimajor_axis += a_dot * dt
-
             j_values = np.ceil(((self.planets.semimajor_axis[1:]/self.planets.semimajor_axis[:-1])**(3/2)-1+0.01)**(-1))
-            self.planets.semimajor_axis = check_resonance(self.planets.semimajor_axis, self.planets.dynamical_mass, j_values)
+            self.planets.semimajor_axis = check_resonance(
+                self.planets.semimajor_axis, 
+                self.planets.dynamical_mass, 
+                j_values
+                )
 
             if dt == 0|units.s:
                 break

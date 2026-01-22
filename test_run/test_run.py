@@ -78,7 +78,7 @@ else:
 
     # psma_in = np.array(star_mass)**((2*beta_L-1)/3) # outside iceline
     psma_in = period_to_sma(
-        100 | units.day, 
+        1 | units.yr, 
         np.array(star_mass) | units.MSun
     ).value_in(units.au)
     psma_out = Rdisk_out_rand

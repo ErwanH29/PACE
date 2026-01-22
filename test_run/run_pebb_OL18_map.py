@@ -28,7 +28,7 @@ from venice_pps_setup_pebb_vader_OL18_map import run_single_pps
 
 
 
-def main():
+def main(inner_edge="Default"):
     datafile = 'planet_evo/'
     os.makedirs(datafile, exist_ok=True)
 
@@ -94,8 +94,6 @@ def main():
             Rdisk_out_rand = df['Rdisk_out_rand']
             tbirth_rand    = df['tbirth_rand']
             beta_L         = df['beta_L']
-            pmass_rand     = df['pmass_rand']
-            psma_rand      = df['psma_rand']
             fDG            = df['fDG']
             mu             = df['mu']
             beta_T         = df['beta_T']
@@ -106,16 +104,19 @@ def main():
         print('Generating random parameters...')
         FeH_rand = 0.02 * np.ones(ndisks)
 
-        # Batygin et al. 2023
-        lower, upper = np.log10(0.1), np.log10(100)
-        mu, sigma = np.log10(4), 0.5
-        logPdisk_in_rand_cal = stats.truncnorm(
-            (lower - mu)/sigma, 
-            (upper - mu)/sigma, 
-            loc=mu, 
-            scale=sigma
-            )
-        Pdisk_in_rand = 10**logPdisk_in_rand_cal.rvs(ndisks)   # | units.days
+        if isinstance(inner_edge, str):
+            # Batygin et al. 2023
+            lower, upper = np.log10(0.1), np.log10(100)
+            mu, sigma = np.log10(4), 0.5
+            logPdisk_in_rand_cal = stats.truncnorm(
+                (lower - mu)/sigma, 
+                (upper - mu)/sigma, 
+                loc=mu, 
+                scale=sigma
+                )
+            Pdisk_in_rand = 10**logPdisk_in_rand_cal.rvs(ndisks)   # | units.days
+        else:
+            Pdisk_in_rand = inner_edge.value_in(units.day) * np.ones(ndisks)
 
         # compute disk inner and outer radii
         Rdisk_in_rand = period_to_sma(
@@ -130,15 +131,6 @@ def main():
         pmass_rand     = 1e-2 * np.ones(ndisks)
         tbirth_rand    = np.random.uniform(0, 0.5, ndisks)  # planet birth time
         beta_L         = 2  # mass slope of mass-luminosity relation for proto stars.
-
-        psma_in = period_to_sma(
-            100 | units.day, 
-            np.array(star_mass) | units.MSun
-        ).value_in(units.au)
-        psma_out = Rdisk_out_rand
-        
-        log_sma_value = np.random.uniform(np.log10(psma_in), np.log10(psma_out))
-        psma_rand = 10**log_sma_value
 
         # some fixed parameters
         # beta_T  = 3/7 # warning, does not have minors sign
@@ -159,7 +151,6 @@ def main():
             Rdisk_out_rand=Rdisk_out_rand, 
             tbirth_rand=tbirth_rand, 
             pmass_rand=pmass_rand, 
-            psma_rand=psma_rand, 
             fDG=fDG, 
             mu=mu, 
             beta_T=beta_T, 
@@ -199,10 +190,9 @@ def main():
         ### Initialise planet embryos. Assume start at some Hill-radii separation
         ### Hills separation lower-bound based on stability limits (Gladman 1993; Chambers et al. 1996)
         hill_sep = float(np.random.uniform(5, 20, 1)[0])
-        psma_in  = period_to_sma(1 | units.yr, M_star)
-        random   = float(np.random.uniform(1,10,1)[0])
-        psma_in *= random
-        
+        random   = float(np.random.uniform(1, 10, 1)[0])
+        psma_in  = random * Rdisk_in
+
         Nplanets = np.random.randint(1, 12)  # number of planets
         planet_masses = [pmass_rand[i] for _ in range(Nplanets)] | units.MEarth
         embryo_separations = [ ]
@@ -264,8 +254,7 @@ def main():
             'R_out:', Rdisk_out_rand[i], 
             'St:', stokes_number, 
             'star_mass:', star_mass[i], 
-            't_birth:', tbirth_rand[i], 
-            'psma:', psma_rand[i]
+            't_birth:', tbirth_rand[i],
             )
         argL = (
             fDG, FeH, mu, v_frag, alpha, 
@@ -284,4 +273,4 @@ def main():
     print(planet_results)
     
 if __name__ == "__main__":
-    main()
+    main(inner_edge=1 | units.yr)
