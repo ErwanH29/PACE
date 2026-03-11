@@ -7,6 +7,27 @@ from venice_src.venice import Venice
 from extra_funcs import *
 from migration_map_paadekooper import cal_tau_I, cal_temperature
 
+def check_resonance(planets, planetsmass, j_values):
+    """
+    Ensure that no adjacent planets cross resonance locations.
+    """
+    for i in range(len(planets) - 1):
+        inner = planets[i]
+        outer = planets[i+1]
+        mass_inner = planetsmass[i]
+        mass_outer = planetsmass[i+1]
+        j = j_values[i]  # Resonance value (j+1):j
+
+        # Minimum ratio of semi-major axes to maintain resonance
+        min_ratio = ((j + 1) / j) ** (2 / 3)
+
+        # If the planets are about to cross the resonance, adjust the two planets
+        if outer / inner < min_ratio:
+            inner05 = (mass_inner*inner**0.5+mass_outer*outer**0.5)/(mass_inner+mass_outer*((j+1)/j)**(1/3))
+            planets[i] = inner05**2
+            planets[i+1] = planets[i] * ((j+1)/j)**(2/3)
+    return planets
+
 class nonisothermal_Migration:
 
     def __init__ (self):
@@ -29,11 +50,14 @@ class nonisothermal_Migration:
         self.dt = pre_dt
 
         self.eta = 0.1 # control the timestep
-
+        
     def set_time_step(self, tau_I, model_time_i, end_time):
-        dt_hill = np.log(1+min(Rhills(self.planets.dynamical_mass,self.star.mass,self.planets.semimajor_axis)/self.planets.semimajor_axis))*tau_I
-        dt_min = self.eta* tau_I
-        dt = min(abs(dt_hill), abs(end_time-model_time_i), abs(dt_min))
+        if np.isinf(tau_I.value_in(units.kyr)):
+            dt = end_time-model_time_i
+        else:
+            dt_hill = np.log(1+min(Rhills(self.planets.dynamical_mass,self.star.mass,self.planets.semimajor_axis)/self.planets.semimajor_axis))*tau_I
+            dt_min = self.eta* tau_I/800
+            dt = min(abs(dt_hill)/5, abs(end_time-model_time_i), abs(dt_min))
         return dt
 
     def access_migration_map(self, rp, Mp):
@@ -68,13 +92,19 @@ class nonisothermal_Migration:
                     _, rate = self.access_migration_map(ap, self.planets[i].dynamical_mass)
                     tau_a[i] = -rate**-1
 
-            dt = self.set_time_step(min(abs(tau_a)), model_time_i, end_time)
+            dt = self.set_time_step(min(tau_a), model_time_i, end_time)
             model_time_i += dt
 
             for i in range(len(self.planets)):
                 ap = self.planets[i].semimajor_axis
                 a_dot = -ap/tau_a[i]
                 self.planets[i].semimajor_axis += a_dot * dt
+            j_values = np.ceil(((self.planets.semimajor_axis[1:]/self.planets.semimajor_axis[:-1])**(3/2)-1+0.01)**(-1))
+            self.planets.semimajor_axis = check_resonance(
+                self.planets.semimajor_axis, 
+                self.planets.dynamical_mass, 
+                j_values
+                )
 
             if dt == 0|units.s:
                 break
@@ -223,34 +253,3 @@ if __name__ == '__main__':
 
     Z=np.array(Z)
     Mig_rate=np.array(Mig_rate)
-
-    fig = plt.figure(0,figsize=(10,8))
-    ax = plt.subplot(2,1,1)
-
-    import matplotlib.colors as colors
-    levels = np.linspace(-1e-5,1e-5,200)
-    # cnt = ax.contourf(X, Y, Z, levels=levels,extend='both', cmap='RdBu_r')
-    lnrwidth = 1e-8
-    shadeopts = {'cmap': 'RdBu_r', 'shading': 'gouraud'}
-    colormap = 'RdBu_r'
-    gain = 1e-5
-    pcm = ax.pcolormesh(X, Y, Mig_rate,
-                        norm=colors.AsinhNorm(linear_width=lnrwidth,
-                                                vmin=-gain, vmax=gain),
-                        **shadeopts)
-    plt.yscale('log')
-    plt.xscale('log')
-    # plt.yticks([1,3,10,30],[1,3,10,30])
-    # plt.ylim(0.1,1e3)
-    plt.xlabel(r'$r[AU]$')
-    plt.ylabel(r'$M_p[M_\oplus]$')
-
-    from mpl_toolkits.axes_grid1 import make_axes_locatable
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    ticks = np.array([-1e-5,-1e-6,-1e-7,-1e-8,1e-8,1e-7,1e-6,1e-5])
-    cbar = plt.colorbar(pcm, cax=cax, ticks=ticks,label=r'$\dot{a}/a$')
-
-    system = run_single_pps(ax, disk, planets, M_star, R_star, dt, end_time, dt_plot)
-
-    plt.savefig("migration_map.png",dpi=500)

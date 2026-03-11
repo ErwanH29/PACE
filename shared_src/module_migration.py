@@ -29,7 +29,12 @@ class TypeIMigration:
         if np.isinf(tau_I.value_in(units.kyr)):
             dt = end_time-model_time_i
         else:
-            dt_hill = np.log(1+min(Rhills(self.planets.dynamical_mass,self.star.mass,self.planets.semimajor_axis)/self.planets.semimajor_axis))*tau_I
+            planet_rhill = Rhills(
+                self.planets.dynamical_mass,
+                self.star.mass,
+                self.planets.semimajor_axis
+                )
+            dt_hill = np.log(1+min(planet_rhill/self.planets.semimajor_axis))*tau_I
             dt_min = self.eta* tau_I
             dt = min(abs(dt_hill), abs(end_time-model_time_i), abs(dt_min))
         return dt

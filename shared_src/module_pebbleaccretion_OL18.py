@@ -7,12 +7,11 @@ from amuse.units import units, constants
 from amuse.datamodel import Particles, Particle, new_regular_grid
 from venice_src.venice import Venice
 
-from extra_funcs import *
 
 fontsize = 15
 
-class PebbleGasAccretion:
 
+class PebbleGasAccretion:
     def __init__(self):
         # Model data
         # add envelope attribute
