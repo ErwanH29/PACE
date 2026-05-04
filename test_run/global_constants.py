@@ -1,6 +1,0 @@
-MU = 2.33
-FDG = 0.0149
-STOKES_NUMBER = 1e-3
-ALPHA = 1e-3
-FRAGMENT_V = 1e3  # | units.cms
-GAMMA = 7/5

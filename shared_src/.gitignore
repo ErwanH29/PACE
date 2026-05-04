@@ -1,0 +1,3 @@
+*.hdf5
+shared_src/cluster_data/*
+shared_src/collisions/*
