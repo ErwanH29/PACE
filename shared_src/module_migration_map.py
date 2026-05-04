@@ -7,6 +7,8 @@ from venice_src.venice import Venice
 from extra_funcs import *
 from migration_map_paadekooper import cal_tau_I, cal_temperature
 
+from params import GAMMA
+
 def check_resonance(planets, planetsmass, j_values):
     """
     Ensure that no adjacent planets cross resonance locations.
@@ -45,19 +47,24 @@ class nonisothermal_Migration:
         self.disk.scale_height = 0.03 * self.disk.position
         self.disk.alpha = 2e-3
 
-        self.gamma = 7/5
+        self.gamma = GAMMA
 
         self.dt = pre_dt
 
         self.eta = 0.1 # control the timestep
         
     def set_time_step(self, tau_I, model_time_i, end_time):
-        if np.isinf(tau_I.value_in(units.kyr)):
-            dt = end_time-model_time_i
-        else:
-            dt_hill = np.log(1+min(Rhills(self.planets.dynamical_mass,self.star.mass,self.planets.semimajor_axis)/self.planets.semimajor_axis))*tau_I
-            dt_min = self.eta* tau_I/800
-            dt = min(abs(dt_hill)/5, abs(end_time-model_time_i), abs(dt_min))
+        ratio = (
+            Rhills(
+                self.planets.dynamical_mass,
+                self.star.mass,
+                self.planets.semimajor_axis
+            ) / self.planets.semimajor_axis
+        )
+        ratio_min = ratio.flatten().min()
+        dt_hill = np.log(1 + ratio_min) * tau_I
+        dt_min = self.eta* tau_I
+        dt = min(abs(dt_hill), abs(end_time-model_time_i), abs(dt_min))
         return dt
 
     def access_migration_map(self, rp, Mp):
@@ -92,7 +99,7 @@ class nonisothermal_Migration:
                     _, rate = self.access_migration_map(ap, self.planets[i].dynamical_mass)
                     tau_a[i] = -rate**-1
 
-            dt = self.set_time_step(min(tau_a), model_time_i, end_time)
+            dt = self.set_time_step(min(abs(tau_a)), model_time_i, end_time)
             model_time_i += dt
 
             for i in range(len(self.planets)):

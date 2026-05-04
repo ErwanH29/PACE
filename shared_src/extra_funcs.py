@@ -41,12 +41,30 @@ def get_rdisk_out(Mstar):
         - 2010ApJ...723.1241A
         - 2020MNRAS.494.4130H
         - 2020ApJ...895..126H
+        - arXiv:2302.03721
     Args:
         Mstar: Mass of the central star.
     Returns:
         Outer radius of the disk.
     """
-    return 117 * (Mstar.value_in(units.MSun))**0.45 | units.au
+    return 200 * (Mstar.value_in(units.MSun))**0.45 | units.au
+
+
+def get_mdisk(Mstar):
+    """
+    Get the mass of the disk radius based on the mass of the star.
+    Based on empirical relation of:
+        - 2010ApJ...723.1241A
+        - 2020MNRAS.494.4130H
+        - 2020ApJ...895..126H
+        - arXiv:2302.03721
+
+    Args:
+        Mstar (float):  Mass of star
+    Returns:
+        Disk mass.
+    """
+    return 0.24 * (Mstar.value_in(units.MSun))**(0.73) | units.MSun
 
 
 def Rhills(Mp,Mstar,ap):
@@ -156,12 +174,20 @@ def get_sequential_indices (i0, i1, folder, dt=0.01|units.Myr):
     particles = read_set_from_file(
         folder+'/viscous_particles_plt_i{a:05}.hdf5'.format(a=indices[0]),
         'hdf5')
-    time[0] = particles.get_timestamp()
+    try:
+        time[0] = particles.get_timestamp()
+    except Exception as e:
+        time[0] = 0 | dt.unit
+
     for i in range(N-1):
         particles = read_set_from_file(
             folder+'/viscous_particles_plt_i{a:05}.hdf5'.format(
                 a=indices[i+1]), 'hdf5')
-        time[i+1] = particles.get_timestamp()
+        try:
+            time[i+1] = particles.get_timestamp()
+        except Exception as e:
+            time[i+1] = time[i] + dt
+
         if time[i+1] - time[i] < dt/2.:
             j = i
             while j >= 0 and time[i+1] - time[j] < dt/2.:

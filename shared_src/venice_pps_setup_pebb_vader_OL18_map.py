@@ -1,15 +1,11 @@
 import numpy as np
 from amuse.units import constants, units
-from amuse.datamodel import Particles, new_regular_grid
+from amuse.datamodel import new_regular_grid
 from venice_src.venice import Venice
 
 from module_pebbleaccretion_OL18 import PebbleGasAccretion
 from module_diskevolution import DiskGasDustEvolution, init_viscous
-from module_migration_map import (
-    nonisothermal_Migration, pre_ndisk, 
-    sound_speed, dynamical_mass
-)
-import subprocess as sp
+from module_migration_map import nonisothermal_Migration, pre_ndisk, sound_speed
 
 
 def setup_single_pps (timestep, verbose=False):
@@ -260,48 +256,3 @@ def run_single_pps(
     system.stop()
     disk_gas_evolution.code.stop()
     return 0
-
-
-if __name__ == '__main__':
-    
-    # initialize planets.
-    a = [2.27] | units.AU
-    M = [1e-2 for i in range(len(a))] | units.MEarth
-    planets = Particles(len(M),
-        core_mass=M,
-        envelope_mass = 0|units.g,
-        semimajor_axis = a,
-        isohist = [False for i in range(len(M))]
-    )
-    planets.add_calculated_attribute('dynamical_mass', dynamical_mass)
-
-    dt = 1 | units.kyr # timestep of the matrix
-    end_time = 1000. #| units.kyr
-    times = np.linspace(0, end_time, 1001) | units.kyr
-
-    N_plot_disk = 10
-    
-    M_star=0.4 | units.MSun
-
-    FeH = 0
-    mu = 2.3
-    alpha = 1e-6
-    alpha_acc = 1e-6
-    gamma = 7/5
-    temp1 = 150|units.K
-    beta_T = 3/7
-
-    v_frag = 1e3 # cm/s
-
-    fDG = 0.0134
-    Rdisk_in = 0.04 | units.AU
-    Rdisk_out = 85 | units.AU
-    stokes_number = 1e-3
-    # M_dot_ph_in = 1e-8 | units.MSun/units.yr
-    M_dot_ph_ex = 1e-10*np.ones(len(times)) | units.MSun/units.yr
-
-    t_birth = 0. | units.Myr
-    filename = './'
-    system = run_single_pps(fDG, FeH, mu, v_frag, alpha, alpha_acc, gamma, temp1, beta_T, Rdisk_in, Rdisk_out, stokes_number, planets, M_star, M_dot_ph_ex, t_birth, dt, times, N_plot_disk, filename)
-    
-    sp.run(['python3', 'venice_pps_plot.py'])

@@ -1,9 +1,15 @@
 """Script containing physical and astronomical constants in cgs units."""
 
-# -*- coding: utf-8 -*
 import numpy as np
-
 from amuse.units import constants, units
+
+
+MU = 2.33
+FDG = 0.0149
+STOKES_NUMBER = 1e-3
+ALPHA = 1e-3
+FRAGMENT_V = 1e3  # | units.cms
+GAMMA = 7/5
 
 G         = constants.G.value_in(units.cm**3/units.g/units.s**2) # Newton’s gravitational constant
 mSun      = (1 | units.MSun).value_in(units.g)
@@ -31,5 +37,14 @@ pc       = (1 | units.parsec).value_in(units.cm)
 H0 = 72 * 1e5/1e6/pc
 
 label = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
-mass = [0.09*mSun, 1.374*mEarth, 1.308*mEarth, 0.388*mEarth, 0.692*mEarth, 1.039*mEarth, 1.321*mEarth, 0.326*mEarth] # modeling planet masses. Credit: Agol+pre
+mass = [
+    0.09*mSun, 
+    1.374*mEarth, 
+    1.308*mEarth, 
+    0.388*mEarth, 
+    0.692*mEarth, 
+    1.039*mEarth, 
+    1.321*mEarth, 
+    0.326*mEarth
+] # modeling planet masses. Credit: Agol+pre
 radii = [0.,1.116,1.097,0.788,0.920,1.045,1.129,0.755] #observational planet radii. Credit: DucrotEtal2020.

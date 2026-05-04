@@ -12,6 +12,8 @@ from amuse.community.vader.interface import Vader
 
 from extra_funcs import pre_ndisk
 
+from params import MU, STOKES_NUMBER, FRAGMENT_V, ALPHA
+
 class DiskGasDustEvolution:
     def __init__(self):
         self.code = Vader(mode='pedisk_dusty')#, redirection='none')  # Use redirection for debugging
@@ -19,15 +21,15 @@ class DiskGasDustEvolution:
         self.model_time = 0 | units.Myr
         self.star = Particle(mass=1|units.MSun)
         self.star_teff = 5775 | units.K
-        self.mu = 2.3
+        self.mu = MU
 
 
         self.disk = new_regular_grid(([int(pre_ndisk)]),[1]|units.au)
         self.disk.surface_gas = 1e-20 | units.g/units.cm**2
         self.disk.surface_solid = 1e-20 | units.g/units.cm**2
         self.disk.vd = 0. | units.cm/units.s
-        self.disk.st = 1e-3
-        self.disk.alpha = 1e-3
+        self.disk.st = STOKES_NUMBER
+        self.disk.alpha = ALPHA
 
     @property
     def inner_photoevap_rate(self):
@@ -67,7 +69,10 @@ class DiskGasDustEvolution:
         """Evolve the disk including photoevaporative effects till end_time."""
         # update internal photo-evaporation automatically
         self.code.set_parameter(0, ( self.inner_photoevap_rate ).value_in(units.g/units.s))
-
+        print("time", self.code.model_time, "->", end_time)
+        print("gas min/max", self.code.grid.column_density.min(), self.code.grid.column_density.max())
+        print("r min/max", self.code.grid.r.min(), self.code.grid.r.max())
+        print("has nan gas", np.any(np.isnan(self.code.grid.column_density.value_in(units.g / units.cm**2))))
         self.code.evolve_model(end_time)
         self.disk.surface_gas = self.code.grid.column_density
         self.disk.surface_solid = self.code.grid_user[0].value | units.g/units.cm**2
@@ -141,8 +146,8 @@ def run_single_pps (R_in, R_out, star_mass, star_radius, Teff, alpha, alpha_acc,
         star_mass           # central mass
     )
 
-    mu = 2.3 # mean molecular weight
-    v_frag = 1e3 # cm/s
+    mu = MU # mean molecular weight
+    v_frag = FRAGMENT_V
 
     viscous = init_viscous(viscous, alpha, alpha_acc, mu, M_dot_ph_ex, star_mass, v_frag)
 
