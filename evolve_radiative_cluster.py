@@ -1,5 +1,19 @@
 """
-Cluster + disk evolution driver using a pooled set of VADER workers.
+Cluster evolution tracking the radiative background on stars and 
+impact of dynamical truncations. 
+
+A geometric approach is taken for computing radiative effects, which 
+is shown to enhance effects (ignoring shielding via dust extinction, 
+see arXiv:2302.03721).
+
+The prescription for dynamical truncation is taken from arXiv:1403.8099
+and only computes the strongest interaction if the distance between the 
+host and the perturbing star is less than twice the crossing distance in
+a bridge time-step.
+
+Stars are assumed to be born all at the same epoch. For a molecular cloud
+collapse, this script will need changes (inclusion of sink particle) and
+changing of stellar attribute 'age'.
 """
 
 import numpy as np
@@ -13,15 +27,11 @@ from amuse.lab import (
     read_set_from_file, write_set_to_file,
 )
 
-from shared_src.extra_funcs import get_rdisk_out
+from shared_src.extra_funcs import get_disk_outer_edge
+from shared_src.params import G0, MASS_MIN, MASS_MAX
 from disk_in_clusters.FRIED_interp import FRIED_interp
 from disk_in_clusters.fuv_luminosity import fuv_luminosity_from_masses
 
-
-G0 = 1.6e-3 * units.erg / units.s / units.cm**2
-MASS_MIN = 0.05 | units.MSun
-MASS_MAX = 1.9 | units.MSun
-DUMMY_MDOT = 1e-10 | units.MSun / units.yr
 
 
 def _ensure_attributes(bodies):
@@ -31,59 +41,30 @@ def _ensure_attributes(bodies):
         bodies (Particles):  Stellar particles to check and add attributes to.
     """
     defaults = {
-        "fuv_ambient_flux": 0.0 | G0,
+        "age": 0 | units.yr,
         "coll_events": 0,
         "fuv_luminosity": 0.0 | units.LSun,
-    }
+        }
     for name, default in defaults.items():
         if not hasattr(bodies, name):
             setattr(bodies, name, default)
 
 
-def _compute_external_fields(bodies):
-    """
-    Compute the external FUV field at the location of each star.
-    This uses the geometric approximation and ignores dust extinction,
-    making it more violent than the more detailed approach (arXiv:2302.03721)
-    
-    Args:
-        bodies (Particles):  Stellar particles.
-    Returns:
-        fields (Quantity array): FUV flux at each star's location.
-    """
-    if not hasattr(bodies, "fuv_luminosity"):
-        raise AttributeError("bodies must already have fuv_luminosity")
-    if len(bodies) < 2:
-        return np.zeros(len(bodies)) | G0
-
+def _get_background_radiation(bodies):
+    """Get the background radiation on star."""
     fields = np.zeros(len(bodies)) | G0
     for i, star in enumerate(bodies):
-        externals = bodies - star
-
-        dr2 = (star.position - externals.position).lengths_squared()
-        fields[i] = (externals.fuv_luminosity / (4.0 * np.pi * dr2)).sum()
-    return fields
-
-
-def _get_background_radiation(bodies):
-    """Get the background radiation on host star."""
-    fields = _compute_external_fields(bodies)
-
-    diskless_mask = bodies.Rout <= 0.0 | units.au
-    diskless = bodies[diskless_mask]
-    disk_host = bodies[~diskless_mask]
-    
-    diskless.fuv_ambient_flux = 0.0 | G0
-    disk_host.fuv_ambient_flux = fields[~diskless_mask]
+        if star.Rout > (0. | units.au):
+            externals = bodies - star
+            dr2 = (star.position - externals.position).lengths_squared()
+            star.fuv_ambient_flux = (externals.fuv_luminosity / (4.0 * np.pi * dr2)).sum()
 
 
 def truncate_disks(bodies, dt_bridge, verbose):
     """Truncate disks using prescription from arXiv:1403.8099"""
     if len(bodies) < 2:
         return
-    if verbose:
-        print(f"Calculating disk truncations", flush=True)
-
+    
     pos = bodies.position.value_in(units.au)
     vel = bodies.velocity.value_in(units.kms)
     mass = bodies.mass.value_in(units.MSun)
@@ -106,7 +87,7 @@ def truncate_disks(bodies, dt_bridge, verbose):
     for i, j in enumerate(nn_index):
         if i == j: 
             continue
-        if nn_dist[i] > 2. * dr_nn[i]:
+        if nn_dist[i] > dr_nn[i]:
             continue
         if bodies[i].Rout <= 0.0 | units.au and bodies[j].Rout <= 0.0 | units.au:
             continue
@@ -143,6 +124,15 @@ def truncate_disks(bodies, dt_bridge, verbose):
     rtrunc_j_au = rtrunc_j.value_in(units.au)
     
     new_rout = bodies.Rout.value_in(units.au)
+    if verbose:
+        trunc_i = new_rout[i_all] > rtrunc_i_au
+        trunc_j = new_rout[j_all] > rtrunc_j_au
+        if 1:
+            print()
+            for old, new in zip(new_rout[i_all][trunc_i], rtrunc_i_au[trunc_i]):
+                print(f"    Disk truncations: {old:.2f} au --> {new:.2f} au")
+            for old, new in zip(new_rout[j_all][trunc_j], rtrunc_j_au[trunc_j]):
+                print(f"    Disk truncations: {old:.2f} au --> {new:.2f} au")
     np.minimum.at(new_rout, i_all, rtrunc_i_au)
     np.minimum.at(new_rout, j_all, rtrunc_j_au)
     bodies.Rout = new_rout | units.au
@@ -189,11 +179,8 @@ def run_code(
     dt_bridge=None,
     diag_time=0.01 | units.Myr,
     end_time=1 | units.Myr,
-    output_file="viscous_particles_plt_i{:05d}.hdf5",  # DO NOT CHANGE
     verbose=False,
     number_of_workers=1,
-    data_file="disk_data/",
-    output_root="shared_src",
 ):
     """
     Run the cluster + disk evolution simulation.
@@ -204,30 +191,37 @@ def run_code(
         dt_bridge (float):         Evolution time step.
         diag_time (float):         Diagnostic time step.
         end_time (float):          Time to end the simulation.
-        output_file (str):         Filename pattern for snapshots.
         verbose (bool):            Whether to print progress information.
         number_of_workers (int):   Number of workers to use for gravity and disk evolution
-        data_file (str):           Path to the directory containing data files for disk evolution (e.g. FRIED grid).
-        output_root (str):         Directory to save output snapshots and collision data.
     """
     if dt_bridge is not None and diag_time < dt_bridge:
         raise ValueError(
             "Diagnostic time step must be greater than evolution time step."
             )
 
+    # Organise data outputs
+    output_root="shared_src"
     snap_dir = os.path.join(output_root, "cluster_data")
     coll_dir = os.path.join(output_root, "collisions")
     os.makedirs(snap_dir, exist_ok=True)
     os.makedirs(coll_dir, exist_ok=True)
-
-    bodies = read_set_from_file(input_file)
-    bodies = bodies[bodies.mass > MASS_MIN][-15:]
-    bodies.Rout = get_rdisk_out(bodies.mass)
-    _ensure_attributes(bodies)
-
-    pe_interp = FRIED_interp(verbosity=False, folder=data_file)
-    bodies.fuv_luminosity = fuv_luminosity_from_masses(bodies, pe_interp)
+    output_file = "viscous_particles_plt_i{:05d}.hdf5"
+    data_file="disk_data/"
     
+    # Read initial cluster file
+    bodies = read_set_from_file(input_file)
+    bodies = bodies[bodies.mass > MASS_MIN][:250]
+    bodies.Rout = get_disk_outer_edge(bodies.mass)
+    diskless = bodies[
+        (bodies.mass < MASS_MIN) | (bodies.mass > MASS_MAX)
+        ]
+    diskless.Rout = 0.0 | units.au
+    _ensure_attributes(bodies)
+    bodies.fuv_luminosity = fuv_luminosity_from_masses(
+        mass=bodies.mass, file=data_file
+        )
+
+    # Setup integrators    
     converter = nbody_system.nbody_to_si(
         bodies.mass.sum(), bodies.virial_radius()
         )
@@ -244,13 +238,9 @@ def run_code(
     chnl_grav_to_local = gravity.particles.new_channel_to(bodies)
     chnl_star_to_grav = stellar.particles.new_channel_to(gravity.particles)
     
-    eligible_hosts = bodies[
-        (bodies.mass >= MASS_MIN) & (bodies.mass <= MASS_MAX)
-        ]
     if verbose:
         print(
-            f"Identified {len(eligible_hosts)} stars with mass in the FRIED grid range "
-            f"({MASS_MIN.in_(units.MSun)} - {MASS_MAX.in_(units.MSun)})",
+            f"{len(bodies) - len(diskless)} stars in the FRIED grid range.",
             flush=True,
         )
         print(f"Gravity code has {len(gravity.particles)} particles", flush=True)
@@ -267,7 +257,7 @@ def run_code(
     while time < end_time:
         time += dt_bridge
         if verbose:
-            print(f"time={time.in_(units.Myr)}", flush=True)
+            print(f"\rtime={time.value_in(units.Myr):.3f} Myr", flush=True, end="")
         
         while gravity.model_time < time:
             gravity.evolve_model(time)
@@ -294,19 +284,25 @@ def run_code(
                     assert len(bodies) == len(gravity.particles) == len(stellar.particles), "Particle counts must match after collision handling"
         
         stellar.evolve_model(time)
-        chnl_grav_to_local.copy()
         chnl_star_to_grav.copy()
+        chnl_grav_to_local.copy()
         
-        bodies.fuv_luminosity = fuv_luminosity_from_masses(bodies, pe_interp)
+        bodies.fuv_luminosity = fuv_luminosity_from_masses(
+            mass=bodies.mass, file=data_file
+            )
         _get_background_radiation(bodies)
         truncate_disks(bodies, dt_bridge, verbose)
         
         ### JIJ BENT HIER
-
         if gravity.model_time >= next_diag_time:
             snap_no += 1
             next_diag_time += diag_time
-            filename = os.path.join(snap_dir, output_file.format(snap_no))
+            
+            bodies.age = gravity.model_time
+            
+            filename = os.path.join(
+                snap_dir, output_file.format(snap_no)
+                )
             write_set_to_file(
                 bodies,
                 filename,
@@ -321,7 +317,7 @@ def run_code(
 
 if __name__ == "__main__":
     run_code(
-        "Run1_Nast500.hdf5", 
+        input_file="Run1_Nast500.hdf5", 
         dt_bridge=0.01 | units.Myr,
         verbose=True,
     )

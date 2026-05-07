@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from amuse.community.ph4.interface import Ph4
 from amuse.community.seba.interface import SeBa
 from amuse.community.vader.interface import Vader
+from amuse.datamodel import new_regular_grid
 from amuse.ext.orbital_elements import orbital_elements
 from amuse.lab import (
     constants, nbody_system, Particles, units,
@@ -21,7 +22,7 @@ from disk_in_clusters.FRIED_interp import FRIED_interp
 from disk_in_clusters.disk_and_dust_class import Disk, DustParameters, SIGMA_FLOOR
 from disk_in_clusters.fuv_luminosity import fuv_luminosity_from_masses
 from shared_src.extra_funcs import get_rdisk_out, get_mdisk
-from test_run.global_constants import FDG, MU, STOKES_NUMBER
+from shared_src.params import FDG, MU, STOKES_NUMBER, GAMMA
 
 
 G0 = 1.6e-3 * units.erg / units.s / units.cm**2
@@ -186,8 +187,8 @@ def setup_vader(
         code.parameters.initial_timestep = 1.0 | units.yr
 
         if vader_mode == "pedisk_dusty":
-            code.parameters.number_of_user_parameters = 14
-            code.parameters.number_of_user_outputs = 3
+            code.parameters.number_of_user_parameters = 15
+            code.parameters.number_of_user_outputs = 5
         else:
             code.parameters.number_of_user_parameters = 7
             code.parameters.number_of_user_outputs = 0
@@ -207,6 +208,7 @@ def setup_vader(
             code.set_parameter(11, 0.0)
             code.set_parameter(12, 0.0)
             code.set_parameter(13, 0.0)
+            code.set_parameter(14, alpha)
         elif vader_mode == "pedisk_nataccr":
             code.set_parameter(5, alpha)
 
@@ -904,7 +906,6 @@ def create_state(
             flush=True,
         )
         print(f"Gravity code has {len(gravity.particles)} particles", flush=True)
-        print(f"Using {n_disk_workers} VADER worker(s)", flush=True)
 
     template_codes = setup_vader(
         1,
@@ -948,12 +949,68 @@ def create_state(
     return state
 
 
+def _disk_to_grid(disk, star, state, alpha, alpha_acc):
+    """Extract the disk properties onto a grid-like particle set"""
+    grid.disk_key = star.disk_key
+    grid.host_star_key = star.key
+    grid.star_mass = star.mass
+    grid.position = disk.grid.r
+    
+    grid.surface_gas = disk.grid.column_density
+    grid.surface_solid = disk.grid_user[0].value | units.g / units.cm**2
+    grid.grain_size = disk.grid_user[1].value | units.cm
+    grid.temperature = disk.grid_user[2].value | units.K
+    grid.vd = disk.grid_user[3].value | units.cm / units.s
+    grid.st = disk.grid_user[4].value
+
+    grid.scale_height = disk._get_disk_scale_height(
+        disk.Tm, disk.disk_radius, disk.central_mass
+    )
+    
+    grid.gamma = GAMMA
+    grid.alpha = alpha
+    grid.alpha_acc = alpha if alpha_acc is None else alpha_acc
+
+    grid.disk_gas_mass = disk.disk_gas_mass
+    grid.disk_dust_mass = disk.disk_dust_mass
+    grid.disk_radius = disk.disk_radius
+    grid.outer_photoevap_rate = disk.outer_photoevap_rate
+    grid.truncation_mass_loss = disk.truncation_mass_loss
+    
+    return grid
+
+def _get_disk_snapshot(state, alpha, alpha_acc):
+    """Save disk properties into particle set"""
+    disk_hosts = [
+        (star, state.disk_map[star.key])
+        for star in state.bodies
+        if state.disk_map.get(star.key) is not None
+    ]
+
+    if len(disk_hosts) == 0:
+        return None
+
+    n_disks = len(disk_hosts)
+    n_cells = len(disk_hosts[0][1].grid)
+
+    disk_data = new_regular_grid((n_disks, n_cells), [1, 1])
+    for i, (star, disk) in enumerate(disk_hosts):
+        disk_data[i, :] = _disk_to_grid(
+            disk_data[i, :],
+            star,
+            state,
+            alpha,
+            alpha_acc
+        )
+    
+    return disk_data
+
+
 def run_code(
     input_file,
     dt=None,
     diag_time=0.01 | units.Myr,
     end_time=1 | units.Myr,
-    output_file="viscous_particles_plt_i{:05d}.hdf5",  # DO NOT CHANGE
     verbose=False,
     number_of_workers=1,
     alpha=1e-3,
@@ -1038,14 +1095,37 @@ def run_code(
         if state.gravity.model_time >= next_diag_time:
             state.snap_no += 1
             next_diag_time += diag_time
-            filename = os.path.join(snap_dir, output_file.format(state.snap_no))
+            
+            star_filename = os.path.join(
+                snap_dir, 
+                f"cluster_snap{state.snap_no:05d}.hdf5"
+                )
             write_set_to_file(
                 state.bodies,
-                filename,
+                star_filename,
                 "amuse",
                 close_file=True,
                 overwrite_file=True,
             )
+            
+            disk_filename = os.path.join(
+                snap_dir, 
+                f"disk_snap{state.snap_no:05d}.hdf5"
+                )
+            disk_profiles = _get_disk_snapshot(
+                state,
+                alpha=alpha,
+                alpha_acc=alpha
+            )
+            write_set_to_file(
+                disk_profiles,
+                disk_filename,
+                "amuse",
+                close_file=True,
+                overwrite_file=True,
+            )
+            
+            
 
     for key in list(state.disk_code_map.keys()):
         _stop_disk_worker(state, key)

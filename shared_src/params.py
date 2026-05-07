@@ -10,6 +10,13 @@ STOKES_NUMBER = 1e-3
 ALPHA = 1e-3
 FRAGMENT_V = 1e3  # | units.cms
 GAMMA = 7/5
+G0 = 1.6e-3 * units.erg / units.s / units.cm**2
+MASS_MIN = 0.05 | units.MSun
+MASS_MAX = 1.9 | units.MSun
+DUMMY_MDOT = 1e-10 | units.MSun / units.yr
+EMBRYO_MASS = 10**-2 | units.MEarth
+METALLICITY = 0.02
+
 
 G         = constants.G.value_in(units.cm**3/units.g/units.s**2) # Newton’s gravitational constant
 mSun      = (1 | units.MSun).value_in(units.g)

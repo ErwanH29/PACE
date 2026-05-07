@@ -1,4 +1,6 @@
 import numpy as np
+import scipy.stats as stats
+
 from amuse.units import units, constants
 from amuse.io import read_set_from_file
 
@@ -7,34 +9,34 @@ pre_dt = 0.1 | units.kyr # timescale for integration
 pre_ndisk = 500
 
 
-def sma_to_period(a, Mstar):
+def sma_to_period(sma, Mstar):
     """
     Convert semi-major axis to orbital period using Kepler's third law.
     Args:
-        a: Semi-major axis.
-        Mstar: Mass of the central star.
+        sma (units.length):  Semi-major axis.
+        Mstar (units.mass):  Mass of the central star.
     Returns:
         Orbital period.
     """
-    return np.sqrt(a**3/(constants.G*Mstar)) * 2 * np.pi
+    return 2. * np.pi * np.sqrt(sma**3 / (constants.G*Mstar))
 
 
-def period_to_sma(P, Mstar):
+def period_to_sma(period, Mstar):
     """
     Convert orbital period to semi-major axis using Kepler's third law.
     Args:
-        P: Orbital period.
-        Mstar: Mass of the central star.
+        period (units.time):  Orbital period.
+        Mstar (units.mass):   Mass of the central star.
     Returns:
         Semi-major axis.
     """
     period_in_yr = P.value_in(units.yr)
     mstar_in_msun = Mstar.value_in(units.MSun)
-    a_in_au = (period_in_yr**2 * mstar_in_msun)**(1/3)
+    a_in_au = (period_in_yr**2. * mstar_in_msun)**(1. / 3.)
     return a_in_au | units.au
 
 
-def get_rdisk_out(Mstar):
+def get_disk_outer_edge(Mstar):
     """
     Get the outer radius of the disk based on the mass of the star.
     Based on empirical relations of:
@@ -43,11 +45,35 @@ def get_rdisk_out(Mstar):
         - 2020ApJ...895..126H
         - arXiv:2302.03721
     Args:
-        Mstar: Mass of the central star.
+        Mstar (units.mass): Mass of the central star.
     Returns:
         Outer radius of the disk.
     """
     return 117 * (Mstar.value_in(units.MSun))**0.45 | units.au
+
+
+def get_disk_inner_edge(Mstar, ndisks):
+    """
+    Get the inner disk edge based on arXiv:2306.08822
+    Args:
+        Mstar (units.mass): Mass of the central star.
+        ndisks (int):       Number of disks.
+    Returns:
+        Outer radius of the disk.
+    """
+    lower, upper = np.log10(0.1), np.log10(100)
+    mu, sigma = np.log10(4), 0.5
+    
+    logPdisk_in_rand_cal = stats.truncnorm(
+        (lower - mu)/sigma, 
+        (upper - mu)/sigma, 
+        loc=mu, 
+        scale=sigma
+        )
+    Pdisk_in_rand = 10**logPdisk_in_rand_cal.rvs(ndisks) | units.day
+    rdisk_inner = period_to_sma(Pdisk_in_rand, Mstar).value_in(units.au)
+
+    return rdisk_inner
 
 
 def get_mdisk(Mstar):
@@ -58,7 +84,6 @@ def get_mdisk(Mstar):
         - 2020MNRAS.494.4130H
         - 2020ApJ...895..126H
         - arXiv:2302.03721
-
     Args:
         Mstar (float):  Mass of star
     Returns:
@@ -77,7 +102,7 @@ def Rhills(Mp,Mstar,ap):
     Returns:
         Hill radius of the planet.
     """
-    return ap*(Mp/3/Mstar)**(1/3)
+    return ap * (Mp / (3. * Mstar))**(1/3)
 
 
 def Rdisk0(Rdisk_in, Rdisk_out, ndisk):
@@ -91,19 +116,6 @@ def Rdisk0(Rdisk_in, Rdisk_out, ndisk):
         Array of disk positions.
     """
     return 10**np.linspace(np.log10(Rdisk_in/(1|units.au)), np.log10(Rdisk_out/(1|units.au)), ndisk) | units.au
-
-
-def temperature(Rdisk, pT, star_mass):
-    """
-    Calculate the disk temperature at a given radius.
-    Args:
-        Rdisk: Radius in the disk.
-        pT: Power-law index for temperature profile.
-        star_mass: Mass of the central star.
-    Returns:
-        Temperature at the given radius.
-    """
-    return (117 | units.K) * (Rdisk/(1|units.au))**pT *(star_mass/(1|units.MSun))
 
 
 def sound_speed(temperature, mu):
@@ -137,22 +149,6 @@ def sigma_g0(fg, pg0, Rdisk, Rdisk_in, Rdisk_out):
     return sigmag0
 
 
-def sigma_d0(sigma_g, fDG, FeH, temperature):
-    """
-    Calculate the initial dust surface density.
-    Args:
-        sigma_g: Gas surface density.
-        fDG: Dust-to-gas ratio.
-        FeH: Metallicity.
-        temperature: Temperature of the disk.
-    Returns:
-        Initial dust surface density at the given radius.
-    """
-    judge = (temperature<(170|units.K))
-    eta_ice = 1 # judge*0.75 + 0.25
-    return  fDG * 10**FeH * eta_ice* sigma_g
-
-
 def dynamical_mass(core_mass, envelope_mass):
     """
     Calculate the dynamical mass of a planet.
@@ -165,26 +161,26 @@ def dynamical_mass(core_mass, envelope_mass):
     return core_mass + envelope_mass
 
 
-def get_sequential_indices (i0, i1, folder, dt=0.01|units.Myr):
+def get_sequential_indices (i0, i1, folder, dt):
     """Associate snapshot indices with snapshots."""
     indices = np.arange(i0, i1+1)
     N = len(indices)
     seq_indices_mask = np.ones(N, dtype=bool)
     time = -np.ones(N) | dt.unit
-    particles = read_set_from_file(
-        folder+'/viscous_particles_plt_i{a:05}.hdf5'.format(a=indices[0]),
-        'hdf5')
+    
+    file_format = folder+'/viscous_particles_plt_i{a:05}.hdf5'
+    stars = read_set_from_file(file_format.format(a=indices[0]), 'hdf5')
     try:
-        time[0] = particles.get_timestamp()
+        time[0] = stars.get_timestamp()
     except Exception as e:
         time[0] = 0 | dt.unit
 
     for i in range(N-1):
-        particles = read_set_from_file(
-            folder+'/viscous_particles_plt_i{a:05}.hdf5'.format(
-                a=indices[i+1]), 'hdf5')
+        stars = read_set_from_file(
+            file_format.format(a=indices[i+1]), 'hdf5'
+            )
         try:
-            time[i+1] = particles.get_timestamp()
+            time[i+1] = stars.get_timestamp()
         except Exception as e:
             time[i+1] = time[i] + dt
 
@@ -193,4 +189,5 @@ def get_sequential_indices (i0, i1, folder, dt=0.01|units.Myr):
             while j >= 0 and time[i+1] - time[j] < dt/2.:
                 seq_indices_mask[j] = False
                 j -= 1
+
     return indices[seq_indices_mask], time[seq_indices_mask]

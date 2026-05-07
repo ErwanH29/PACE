@@ -104,10 +104,10 @@ def setup_single_pps (timestep, verbose=False):
     return system, pebble_gas_accretion, disk_gas_evolution, migration
 
 def run_single_pps(
-    fDG, FeH, mu, v_frag, alpha, alpha_acc, gamma, temp1, 
-    beta_T, Rdisk_in, Rdisk_out, stokes_number, planets, 
-    star_mass, M_dot_ph_ex, t_birth, dt, times, N_snapshot, 
-    filename
+    star_mass, Rdisk_in, Rdisk_out, fuv_lum,
+    fDG, FeH, mu, v_frag, alpha, alpha_acc, 
+    gamma, temp1, beta_T, stokes_number, planets, 
+    t_birth, dt, times, N_snapshot, filename
     ):
     # initialize venice
     system,_,disk_gas_evolution,_ = setup_single_pps(dt)
