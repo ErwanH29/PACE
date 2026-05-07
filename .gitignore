@@ -2,5 +2,6 @@
 shared_src/cluster_data/*
 shared_src/collisions/*
 shared_src/__pycache__
+disk_in_clusters/__pycache__
 __pycache__
 .vscode
