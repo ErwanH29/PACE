@@ -1,3 +1,6 @@
 *.hdf5
 shared_src/cluster_data/*
 shared_src/collisions/*
+shared_src/__pycache__
+__pycache__
+.vscode
