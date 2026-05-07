@@ -47,7 +47,7 @@ def get_rdisk_out(Mstar):
     Returns:
         Outer radius of the disk.
     """
-    return 200 * (Mstar.value_in(units.MSun))**0.45 | units.au
+    return 117 * (Mstar.value_in(units.MSun))**0.45 | units.au
 
 
 def get_mdisk(Mstar):
