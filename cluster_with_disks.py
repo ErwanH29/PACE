@@ -798,33 +798,48 @@ def truncate_disks_from_nearest_neighbor(state):
 
 
 def merge_particles(bodies, enc_set, model_time, output, disk_map):
+    
     kepler_elements = orbital_elements(enc_set, G=constants.G)
     sma = kepler_elements[2]
     ecc = kepler_elements[3]
     inc = kepler_elements[4]
+    if 1:
+        q = sma * (1 - ecc)
+        rtrunc_i = 0.28 * q * (enc_set[0].mass / enc_set[1].mass) ** 0.32
+        rtrunc_j = 0.28 * q * (enc_set[1].mass / enc_set[0].mass) ** 0.32
+        
+        enc_set[0].radius = rtrunc_i
+        enc_set[1].radius = rtrunc_j
+        
+    
+    else:  # Classic sticky sphere
+        kepler_elements = orbital_elements(enc_set, G=constants.G)
+        sma = kepler_elements[2]
+        ecc = kepler_elements[3]
+        inc = kepler_elements[4]
 
-    with open(output, "w") as f:
-        f.write(f"Tcoll: {model_time.in_(units.yr)}")
-        f.write(f"\nKey1: {enc_set[0].key}")
-        f.write(f"\nKey2: {enc_set[1].key}")
-        f.write(f"\nM1: {enc_set[0].mass.in_(units.MSun)}")
-        f.write(f"\nM2: {enc_set[1].mass.in_(units.MSun)}")
-        f.write(f"\nSemi-major axis: {abs(sma).in_(units.au)}")
-        f.write(f"\nEccentricity: {ecc}")
-        f.write(f"\nInclination: {inc.in_(units.deg)}")
+        with open(output, "w") as f:
+            f.write(f"Tcoll: {model_time.in_(units.yr)}")
+            f.write(f"\nKey1: {enc_set[0].key}")
+            f.write(f"\nKey2: {enc_set[1].key}")
+            f.write(f"\nM1: {enc_set[0].mass.in_(units.MSun)}")
+            f.write(f"\nM2: {enc_set[1].mass.in_(units.MSun)}")
+            f.write(f"\nSemi-major axis: {abs(sma).in_(units.au)}")
+            f.write(f"\nEccentricity: {ecc}")
+            f.write(f"\nInclination: {inc.in_(units.deg)}")
 
-    for p in enc_set:
-        disk_map.pop(p.key, None)
+        for p in enc_set:
+            disk_map.pop(p.key, None)
 
-    new_particle = Particles(1)
-    new_particle.mass = enc_set.mass.sum()
-    new_particle.position = enc_set.center_of_mass()
-    new_particle.velocity = enc_set.center_of_mass_velocity()
-    new_particle.coll_events = enc_set.coll_events.sum() + 1
-    new_particle.fuv_luminosity = 0.0 | units.LSun
+        new_particle = Particles(1)
+        new_particle.mass = enc_set.mass.sum()
+        new_particle.position = enc_set.center_of_mass()
+        new_particle.velocity = enc_set.center_of_mass_velocity()
+        new_particle.coll_events = enc_set.coll_events.sum() + 1
+        new_particle.fuv_luminosity = 0.0 | units.LSun
 
-    bodies.remove_particles(enc_set)
-    bodies.add_particles(new_particle)
+        bodies.remove_particles(enc_set)
+        bodies.add_particles(new_particle)
 
 
 def evolve_gravity(state, dt, coll_dir, chnl_grav_to_local, chnl_star_to_grav):

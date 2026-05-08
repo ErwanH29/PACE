@@ -33,6 +33,23 @@ from disk_in_clusters.FRIED_interp import FRIED_interp
 from disk_in_clusters.fuv_luminosity import fuv_luminosity_from_masses
 
 
+def ZAMS_radius(star_mass) -> units.radius:
+    """
+    Define stellar radius at ZAMS.
+    Args:
+        star_mass (units.mass):  Mass of star.
+    Returns:
+        units.length:  The ZAMS radius of the star.
+    """
+    mass_in_sun = star_mass.value_in(units.MSun)
+    mass_sq = (mass_in_sun)**2.
+
+    numerator = mass_in_sun**1.25 * (0.1148 + 0.8604 * mass_sq)
+    denominator = (0.04651 + mass_sq)
+    r_zams = numerator / denominator
+
+    return r_zams | units.RSun
+
 
 def _ensure_attributes(bodies):
     """
@@ -128,7 +145,6 @@ def truncate_disks(bodies, dt_bridge, verbose):
         trunc_i = new_rout[i_all] > rtrunc_i_au
         trunc_j = new_rout[j_all] > rtrunc_j_au
         if 1:
-            print()
             for old, new in zip(new_rout[i_all][trunc_i], rtrunc_i_au[trunc_i]):
                 print(f"    Disk truncations: {old:.2f} au --> {new:.2f} au")
             for old, new in zip(new_rout[j_all][trunc_j], rtrunc_j_au[trunc_j]):
@@ -138,7 +154,7 @@ def truncate_disks(bodies, dt_bridge, verbose):
     bodies.Rout = new_rout | units.au
 
 
-def merge_particles(bodies, colliders, model_time, output):
+def merge_particles(bodies, colliders, model_time, output, trunc_mode=0):
     """
     Merge colliding particles via sticky-sphere approximation and log the encounter details.
     Args:
@@ -146,32 +162,75 @@ def merge_particles(bodies, colliders, model_time, output):
         colliders (Particles): The subset of colliding particles.
         model_time (float):    The time at which the collision occurs.
         output (str):          Path to the output file for logging collision details.
+        trunc_mode (int):      Mode for truncation (0 for classic, 1 for modified)
     """
     kepler_elements = orbital_elements(colliders, G=constants.G)
     sma = kepler_elements[2]
     ecc = kepler_elements[3]
     inc = kepler_elements[4]
+    
+    if trunc_mode:
+        dr = (colliders[1].position - colliders[0].position).length()
+        rcoll = ZAMS_radius(colliders[0].mass) + ZAMS_radius(colliders[1].mass)
+        if dr > rcoll:
+            q = sma * (1 - ecc)
+            rtrunc_i = 0.28 * q * (colliders[0].mass / colliders[1].mass) ** 0.32
+            rtrunc_j = 0.28 * q * (colliders[1].mass / colliders[0].mass) ** 0.32
+            
+            if rtrunc_i < colliders[0].Rout:
+                print(f"   dr = {dr.value_in(units.au):.2f} au > rcoll = {rcoll.value_in(units.au):.2f} au, applying modified truncation")
+                print(f"    Disk truncation: {colliders[0].Rout.value_in(units.au):.2f} au --> {rtrunc_i.value_in(units.au):.2f} au")
+                colliders[0].Rout = rtrunc_i
+                colliders[0].radius = colliders[0].Rout / 0.28 * (bodies.mass.max() / colliders[0].mass) ** 0.32
 
-    with open(output, "w") as f:
-        f.write(f"Tcoll: {model_time.in_(units.yr)}")
-        f.write(f"\nKey1: {colliders[0].key}")
-        f.write(f"\nKey2: {colliders[1].key}")
-        f.write(f"\nM1: {colliders[0].mass.in_(units.MSun)}")
-        f.write(f"\nM2: {colliders[1].mass.in_(units.MSun)}")
-        f.write(f"\nSemi-major axis: {abs(sma).in_(units.au)}")
-        f.write(f"\nEccentricity: {ecc}")
-        f.write(f"\nInclination: {inc.in_(units.deg)}")
+            if rtrunc_j < colliders[1].Rout:
+                print(f"   dr = {dr.value_in(units.au):.2f} au > rcoll = {rcoll.value_in(units.au):.2f} au, applying modified truncation")
+                print(f"    Disk truncation: {colliders[1].Rout.value_in(units.au):.2f} au --> {rtrunc_j.value_in(units.au):.2f} au")
+                colliders[1].Rout = rtrunc_j
+                colliders[1].radius = colliders[1].Rout / 0.28 * (bodies.mass.max() / colliders[1].mass) ** 0.32
+        else:
+            with open(output, "w") as f:
+                f.write(f"Tcoll: {model_time.in_(units.yr)}")
+                f.write(f"\nKey1: {colliders[0].key}")
+                f.write(f"\nKey2: {colliders[1].key}")
+                f.write(f"\nM1: {colliders[0].mass.in_(units.MSun)}")
+                f.write(f"\nM2: {colliders[1].mass.in_(units.MSun)}")
+                f.write(f"\nSemi-major axis: {abs(sma).in_(units.au)}")
+                f.write(f"\nEccentricity: {ecc}")
+                f.write(f"\nInclination: {inc.in_(units.deg)}")
 
-    new_particle = Particles(1)
-    new_particle.mass = colliders.mass.sum()
-    new_particle.position = colliders.center_of_mass()
-    new_particle.velocity = colliders.center_of_mass_velocity()
-    new_particle.coll_events = colliders.coll_events.sum() + 1
-    new_particle.fuv_luminosity = 0.0 | units.LSun
-    new_particle.Rout = 0.0 | units.au
+            new_particle = Particles(1)
+            new_particle.mass = colliders.mass.sum()
+            new_particle.position = colliders.center_of_mass()
+            new_particle.velocity = colliders.center_of_mass_velocity()
+            new_particle.coll_events = colliders.coll_events.sum() + 1
+            new_particle.fuv_luminosity = 0.0 | units.LSun
+            new_particle.Rout = 0.0 | units.au
 
-    bodies.remove_particles(colliders)
-    bodies.add_particles(new_particle)
+            bodies.remove_particles(colliders)
+            bodies.add_particles(new_particle)
+            
+    else:
+        with open(output, "w") as f:
+            f.write(f"Tcoll: {model_time.in_(units.yr)}")
+            f.write(f"\nKey1: {colliders[0].key}")
+            f.write(f"\nKey2: {colliders[1].key}")
+            f.write(f"\nM1: {colliders[0].mass.in_(units.MSun)}")
+            f.write(f"\nM2: {colliders[1].mass.in_(units.MSun)}")
+            f.write(f"\nSemi-major axis: {abs(sma).in_(units.au)}")
+            f.write(f"\nEccentricity: {ecc}")
+            f.write(f"\nInclination: {inc.in_(units.deg)}")
+
+        new_particle = Particles(1)
+        new_particle.mass = colliders.mass.sum()
+        new_particle.position = colliders.center_of_mass()
+        new_particle.velocity = colliders.center_of_mass_velocity()
+        new_particle.coll_events = colliders.coll_events.sum() + 1
+        new_particle.fuv_luminosity = 0.0 | units.LSun
+        new_particle.Rout = 0.0 | units.au
+
+        bodies.remove_particles(colliders)
+        bodies.add_particles(new_particle)
 
 
 def run_code(
@@ -181,6 +240,7 @@ def run_code(
     end_time=1 | units.Myr,
     verbose=False,
     number_of_workers=1,
+    trunc_mode=0
 ):
     """
     Run the cluster + disk evolution simulation.
@@ -193,6 +253,7 @@ def run_code(
         end_time (float):          Time to end the simulation.
         verbose (bool):            Whether to print progress information.
         number_of_workers (int):   Number of workers to use for gravity and disk evolution
+        trunc_mode (int):          Mode for truncation (0 for classic, 1 for modified)
     """
     if dt_bridge is not None and diag_time < dt_bridge:
         raise ValueError(
@@ -212,6 +273,9 @@ def run_code(
     bodies = read_set_from_file(input_file)
     bodies = bodies[bodies.mass > MASS_MIN][:250]
     bodies.Rout = get_disk_outer_edge(bodies.mass)
+    if trunc_mode == 1:
+        bodies.radius = bodies.Rout / 0.28 * (bodies.mass.max() / bodies.mass) ** 0.32
+
     diskless = bodies[
         (bodies.mass < MASS_MIN) | (bodies.mass > MASS_MAX)
         ]
@@ -236,7 +300,15 @@ def run_code(
     stellar.particles.add_particles(bodies)
 
     chnl_grav_to_local = gravity.particles.new_channel_to(bodies)
-    chnl_star_to_grav = stellar.particles.new_channel_to(gravity.particles)
+    chnl_local_to_grav = bodies.new_channel_to(gravity.particles)
+    if trunc_mode == 0:
+        chnl_star_to_grav = stellar.particles.new_channel_to(gravity.particles)
+    else:
+        chnl_star_to_grav = stellar.particles.new_channel_to(
+            gravity.particles, 
+            attributes=["mass"], 
+            target_names=["mass"]
+            )
     
     if verbose:
         print(
@@ -258,7 +330,8 @@ def run_code(
         time += dt_bridge
         if verbose:
             print(f"\rtime={time.value_in(units.Myr):.3f} Myr", flush=True, end="")
-        
+            print()
+            
         while gravity.model_time < time:
             gravity.evolve_model(time)
             if grav_coll.is_set():
@@ -276,11 +349,12 @@ def run_code(
                         colliders,
                         gravity.model_time,
                         outpath,
+                        trunc_mode
                     )
 
                     bodies.synchronize_to(gravity.particles)
                     bodies.synchronize_to(stellar.particles)
-                    
+                    chnl_local_to_grav.copy()
                     assert len(bodies) == len(gravity.particles) == len(stellar.particles), "Particle counts must match after collision handling"
         
         stellar.evolve_model(time)
@@ -291,7 +365,8 @@ def run_code(
             mass=bodies.mass, file=data_file
             )
         _get_background_radiation(bodies)
-        truncate_disks(bodies, dt_bridge, verbose)
+        if trunc_mode == 0:
+            truncate_disks(bodies, dt_bridge, verbose)
         
         ### JIJ BENT HIER
         if gravity.model_time >= next_diag_time:
@@ -320,4 +395,5 @@ if __name__ == "__main__":
         input_file="Run1_Nast500.hdf5", 
         dt_bridge=0.01 | units.Myr,
         verbose=True,
+        trunc_mode=1
     )

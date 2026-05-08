@@ -66,7 +66,6 @@ def _generate_planet_sma(sma_inner, sma_outer, Mstar, Mplanets):
             )
             sma_inner = embryo_sma[-1] + hill_sep * Rhill.value_in(units.au)
             new_sma = np.random.uniform(sma_inner, sma_outer)  # | units.AU
-            print(new_sma)
             if new_sma >= 0.9 * sma_outer:
                 print(f"Reached disk outer edge at planet {i}, stopping embryo placement.")
                 break
@@ -142,6 +141,13 @@ def _get_star_data(indexs):
             if host.mass >= MASS_MAX:
                 continue
             elif host.mass <= MASS_MIN:
+                continue
+            elif host.Rout.value_in(units.au) <= 0.0:  # No disk at end, remove all references
+                if key in disk_keys:
+                    Rdisk_out[disk_keys.index(key)].pop()
+                    fuv_lum[disk_keys.index(key)].pop()
+                    star_ages[disk_keys.index(key)].pop()
+                    star_mass[disk_keys.index(key)].pop()
                 continue
 
             rout = host.Rout.value_in(units.au)
@@ -246,6 +252,7 @@ def main(inner_edge=None):
     else:
         n_jobs = os.cpu_count() // 2  # Leave some cores free. Each process requires 2 cores.
     print(f"Number of processes being used in parallel: {n_jobs}")
+    print(f"Number of disks to simulate: {ndisks}")
 
     ctx = mp.get_context("spawn")
     pool = ctx.Pool(processes=int(n_jobs))
@@ -291,7 +298,7 @@ def main(inner_edge=None):
         planets.add_calculated_attribute('dynamical_mass', dynamical_mass)
 
         # temp1 = 150*star_mass[i]**((2*beta_L-1)/7) | units.K
-        temp1 = 150. * (star_mass[i][0])**(1/4) | units.K
+        temp1 = 150. * (star_mass[i][0])**(1/4) | units.K  # Taken from arXiv:2105.13101
 
         times = np.array(star_ages[i]) | units.kyr
         masses = np.array(star_mass[i]) | units.MSun
@@ -299,19 +306,20 @@ def main(inner_edge=None):
         disk_rout = np.array(Rdisk_out[i]) | units.au
 
         print(
-            'fDG:', fDG, 
-            'FeH:', FeH, 
-            'alpha:', alpha, 
-            'alpha_acc:', alpha_acc, 
-            'gamma:', gamma, 
-            'temp1:', temp1.value_in(units.K), 
-            'betaT:', beta_T, 
-            'R_in:', rdisk_inner[i], 
-            'R_out:', Rdisk_out[i], 
-            'St:', stokes_number, 
-            'star_mass:', star_mass[i], 
-            't_birth:', tbirth_rand[i], 
-            'psma:', planet_sma[i]
+            f'fDG: {fDG:.3f}, ',
+            f'\nFeH: {FeH:.3f}, ',
+            f'\nalpha: {alpha:.3f}, ',
+            f'\nalpha_acc: {alpha_acc:.3f}, ',
+            f'\ngamma: {gamma:.3f}, ',
+            f'\ntemp1: {temp1.value_in(units.K):.3f} K, ',
+            f'\nbetaT: {beta_T:.3f}, ',
+            f'\nR_in: {rdisk_inner[i]:.3f} au, ',
+            f'\nR_out (initial): {Rdisk_out[i][0]:.3f} au, ',
+            f'\nSt: {stokes_number}, ',
+            f'\nstar_mass (initial): {star_mass[i][0]:.3f} MSun, ',
+            f'\nt_birth: {tbirth_rand[i]:.3f} Myr, ',
+            f'\npsma: {planet_sma[i]:.3f}\n',
+            "=" * 50,
             )
         argL = (
             star_mass[i], Rdisk_in[i], Rdisk_out[i], fuv_lum[i],
@@ -326,8 +334,7 @@ def main(inner_edge=None):
     pool.close()
     pool.join()
 
-    planet_results = np.array([i.get() for i in results])
-    print(planet_results)
     
+
 if __name__ == "__main__":
     main()
