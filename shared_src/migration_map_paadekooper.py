@@ -1,8 +1,10 @@
 import numpy as np
-import params as ps
 import matplotlib.pyplot as plt
 
+import shared_src.params as ps
+
 Z_sol = 0.0196/100
+
 
 def torque_L(beta,alpha,gamma):
     return (-2.5-1.7*beta+0.1*alpha)/gamma
@@ -159,7 +161,6 @@ def fun_gamma_eff_izid(*args):
         if 2*np.sqrt((gamma**2*Q**2+1)**2-16*Q**2*(gamma-1))+2*gamma**2*Q**2-2<0:
             print(gamma,Q)
     return gamma_eff
-
 
 def cal_gamma_eff_izid(gamma, chi, rs, M_star, M_planet, h):
     # rs in unit cm

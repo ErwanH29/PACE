@@ -14,7 +14,7 @@ class FRIED_interp(object):
     """
     def __init__ (
         self, 
-        folder='disk_data/', 
+        data_path='disk_data/', 
         logMstar=True, 
         logF=True, 
         logMdisk=True, 
@@ -24,19 +24,18 @@ class FRIED_interp(object):
         """
         Initialise FRIED_interp object
         Args:
-            folder (str):      Directory of FRIED grid data file
+            data_path (str):   Directory of FRIED grid data file
             logMstar (bool):   Make log grid of host star mass (else linear)
             logF (bool):       Make log grid of incident FUV field (else linear)
             logMdisk (bool):   Make log grid of disk mass (else linear)
             logRdisk (bool):   Make log grid of disk radius (else linear)
             verbosity (bool):  Print warning message if points are outside domain
         """
-        fried_data_path = folder + '/friedgrid.dat'
 
         mstar_grid, f_grid, mdisk_grid, rdisk_grid = np.loadtxt(
-            fried_data_path, usecols=(0,1,2,4), unpack=True
+            data_path, usecols=(0,1,2,4), unpack=True
             )
-        self._logMdot_grid = np.loadtxt(fried_data_path, usecols=(5,))
+        self._logMdot_grid = np.loadtxt(data_path, usecols=(5,))
 
         self._logMstar = logMstar
         self._logF = logF

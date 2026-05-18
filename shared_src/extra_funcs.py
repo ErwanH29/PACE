@@ -5,32 +5,16 @@ from amuse.units import units, constants
 from amuse.io import read_set_from_file
 
 
-pre_dt = 0.1 | units.kyr # timescale for integration
-pre_ndisk = 500
-
-
-def sma_to_period(sma, Mstar):
-    """
-    Convert semi-major axis to orbital period using Kepler's third law.
-    Args:
-        sma (units.length):  Semi-major axis.
-        Mstar (units.mass):  Mass of the central star.
-    Returns:
-        Orbital period.
-    """
-    return 2. * np.pi * np.sqrt(sma**3 / (constants.G*Mstar))
-
-
 def period_to_sma(period, Mstar):
     """
-    Convert orbital period to semi-major axis using Kepler's third law.
+    Convert orbital period to semi-major axis.
     Args:
         period (units.time):  Orbital period.
         Mstar (units.mass):   Mass of the central star.
     Returns:
         Semi-major axis.
     """
-    period_in_yr = P.value_in(units.yr)
+    period_in_yr = period.value_in(units.yr)
     mstar_in_msun = Mstar.value_in(units.MSun)
     a_in_au = (period_in_yr**2. * mstar_in_msun)**(1. / 3.)
     return a_in_au | units.au
@@ -161,7 +145,7 @@ def dynamical_mass(core_mass, envelope_mass):
     return core_mass + envelope_mass
 
 
-def get_sequential_indices (i0, i1, folder, dt):
+def get_sequential_indices(i0, i1, folder, dt):
     """Associate snapshot indices with snapshots."""
     indices = np.arange(i0, i1+1)
     N = len(indices)

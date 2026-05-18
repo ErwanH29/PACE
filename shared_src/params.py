@@ -1,7 +1,18 @@
 """Script containing physical and astronomical constants in cgs units."""
 
 import numpy as np
+import os
+
 from amuse.units import constants, units
+
+
+SIGMA_FLOOR = 1e-12 | units.g / units.cm**2  # arXiv:2109.01456
+
+#Dust parameters from # arXiv:2302.03721
+SUBL_TEMP = 1e9 | units.K
+CFL = 1e99
+A0 = 1e-7 | units.m
+RHO_DUST = 1.0 | units.g / units.cm**3
 
 
 MU = 2.33
@@ -16,6 +27,16 @@ MASS_MAX = 1.9 | units.MSun
 DUMMY_MDOT = 1e-10 | units.MSun / units.yr
 EMBRYO_MASS = 10**-2 | units.MEarth
 METALLICITY = 0.02
+DISK_MASS_TO_STAR = 0.1
+
+
+try:
+    with open(os.path.join('shared_src/', "cluster_data", "bridge_step.txt"), "r") as f:
+        BRIDGE_DT = float(f.read().strip()) | units.yr
+except Exception as e:
+    print(f"Warning: Could not read bridge_step.txt. Defaulting to 0.01 Myr. Error: {e}")
+    BRIDGE_DT = 0.01 | units.Myr
+PACE_DT = BRIDGE_DT / 10.
 
 
 G         = constants.G.value_in(units.cm**3/units.g/units.s**2) # Newton’s gravitational constant

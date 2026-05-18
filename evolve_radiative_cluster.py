@@ -28,14 +28,13 @@ from amuse.lab import (
 )
 
 from shared_src.extra_funcs import get_disk_outer_edge
-from shared_src.params import G0, MASS_MIN, MASS_MAX
-from disk_in_clusters.FRIED_interp import FRIED_interp
+from shared_src.params import MASS_MIN, MASS_MAX
 from disk_in_clusters.fuv_luminosity import fuv_luminosity_from_masses
 
 
-def ZAMS_radius(star_mass) -> units.radius:
+def ZAMS_radius(star_mass):
     """
-    Define stellar radius at ZAMS.
+    Get stellar radius assuming zero-age MS star.
     Args:
         star_mass (units.mass):  Mass of star.
     Returns:
@@ -49,6 +48,18 @@ def ZAMS_radius(star_mass) -> units.radius:
     r_zams = numerator / denominator
 
     return r_zams | units.RSun
+
+
+def _apply_truncation(rperi, mass_a, mass_b):
+    """Apply the truncation prescription from arXiv:1403.8099."""
+    rtrunc_a = 0.28 * rperi * (mass_a / mass_b) ** 0.32
+    rtrunc_b = 0.28 * rperi * (mass_b / mass_a) ** 0.32
+    return rtrunc_a, rtrunc_b
+
+
+def _get_new_radius(body, max_mass):
+    """Get new radius for star after truncation."""
+    return body.Rout / 0.28 * (max_mass / body.mass) ** 0.32
 
 
 def _ensure_attributes(bodies):
@@ -69,7 +80,6 @@ def _ensure_attributes(bodies):
 
 def _get_background_radiation(bodies):
     """Get the background radiation on star."""
-    fields = np.zeros(len(bodies)) | G0
     for i, star in enumerate(bodies):
         if star.Rout > (0. | units.au):
             externals = bodies - star
@@ -78,7 +88,14 @@ def _get_background_radiation(bodies):
 
 
 def truncate_disks(bodies, dt_bridge, verbose):
-    """Truncate disks using prescription from arXiv:1403.8099"""
+    """
+    Truncate disks using geometric approach.
+    
+    Args:
+        bodies (Particles):    Stellar particles with disk attributes.
+        dt_bridge (float):     Time step for bridge evolution.
+        verbose (bool):        Whether to print truncation details.
+    """
     if len(bodies) < 2:
         return
     
@@ -133,8 +150,9 @@ def truncate_disks(bodies, dt_bridge, verbose):
     ecc = np.sqrt(ecc2)
     rperi = h2 / (mu * (1.0 + ecc))
 
-    rtrunc_i = rperi / 3.0 * (mass[i_all] / mass[j_all]) ** 0.32
-    rtrunc_j = rperi / 3.0 * (mass[j_all] / mass[i_all]) ** 0.32
+    rtrunc_i, rtrunc_j = _apply_truncation(
+        rperi, mass[i_all], mass[j_all]
+    )
     
     # Strip units to vectorise
     rtrunc_i_au = rtrunc_i.value_in(units.au)
@@ -164,53 +182,7 @@ def merge_particles(bodies, colliders, model_time, output, trunc_mode=0):
         output (str):          Path to the output file for logging collision details.
         trunc_mode (int):      Mode for truncation (0 for classic, 1 for modified)
     """
-    kepler_elements = orbital_elements(colliders, G=constants.G)
-    sma = kepler_elements[2]
-    ecc = kepler_elements[3]
-    inc = kepler_elements[4]
-    
-    if trunc_mode:
-        dr = (colliders[1].position - colliders[0].position).length()
-        rcoll = ZAMS_radius(colliders[0].mass) + ZAMS_radius(colliders[1].mass)
-        if dr > rcoll:
-            q = sma * (1 - ecc)
-            rtrunc_i = 0.28 * q * (colliders[0].mass / colliders[1].mass) ** 0.32
-            rtrunc_j = 0.28 * q * (colliders[1].mass / colliders[0].mass) ** 0.32
-            
-            if rtrunc_i < colliders[0].Rout:
-                print(f"   dr = {dr.value_in(units.au):.2f} au > rcoll = {rcoll.value_in(units.au):.2f} au, applying modified truncation")
-                print(f"    Disk truncation: {colliders[0].Rout.value_in(units.au):.2f} au --> {rtrunc_i.value_in(units.au):.2f} au")
-                colliders[0].Rout = rtrunc_i
-                colliders[0].radius = colliders[0].Rout / 0.28 * (bodies.mass.max() / colliders[0].mass) ** 0.32
-
-            if rtrunc_j < colliders[1].Rout:
-                print(f"   dr = {dr.value_in(units.au):.2f} au > rcoll = {rcoll.value_in(units.au):.2f} au, applying modified truncation")
-                print(f"    Disk truncation: {colliders[1].Rout.value_in(units.au):.2f} au --> {rtrunc_j.value_in(units.au):.2f} au")
-                colliders[1].Rout = rtrunc_j
-                colliders[1].radius = colliders[1].Rout / 0.28 * (bodies.mass.max() / colliders[1].mass) ** 0.32
-        else:
-            with open(output, "w") as f:
-                f.write(f"Tcoll: {model_time.in_(units.yr)}")
-                f.write(f"\nKey1: {colliders[0].key}")
-                f.write(f"\nKey2: {colliders[1].key}")
-                f.write(f"\nM1: {colliders[0].mass.in_(units.MSun)}")
-                f.write(f"\nM2: {colliders[1].mass.in_(units.MSun)}")
-                f.write(f"\nSemi-major axis: {abs(sma).in_(units.au)}")
-                f.write(f"\nEccentricity: {ecc}")
-                f.write(f"\nInclination: {inc.in_(units.deg)}")
-
-            new_particle = Particles(1)
-            new_particle.mass = colliders.mass.sum()
-            new_particle.position = colliders.center_of_mass()
-            new_particle.velocity = colliders.center_of_mass_velocity()
-            new_particle.coll_events = colliders.coll_events.sum() + 1
-            new_particle.fuv_luminosity = 0.0 | units.LSun
-            new_particle.Rout = 0.0 | units.au
-
-            bodies.remove_particles(colliders)
-            bodies.add_particles(new_particle)
-            
-    else:
+    def _log_collision(output, model_time, colliders, sma, ecc, inc):
         with open(output, "w") as f:
             f.write(f"Tcoll: {model_time.in_(units.yr)}")
             f.write(f"\nKey1: {colliders[0].key}")
@@ -220,7 +192,8 @@ def merge_particles(bodies, colliders, model_time, output, trunc_mode=0):
             f.write(f"\nSemi-major axis: {abs(sma).in_(units.au)}")
             f.write(f"\nEccentricity: {ecc}")
             f.write(f"\nInclination: {inc.in_(units.deg)}")
-
+    
+    def _create_remnant(colliders):
         new_particle = Particles(1)
         new_particle.mass = colliders.mass.sum()
         new_particle.position = colliders.center_of_mass()
@@ -228,6 +201,50 @@ def merge_particles(bodies, colliders, model_time, output, trunc_mode=0):
         new_particle.coll_events = colliders.coll_events.sum() + 1
         new_particle.fuv_luminosity = 0.0 | units.LSun
         new_particle.Rout = 0.0 | units.au
+        new_particle.unmodified_radius = 0.0 | units.au
+        new_particle.radius = ZAMS_radius(new_particle.mass)
+        return new_particle
+
+    kepler_elements = orbital_elements(colliders, G=constants.G)
+    sma = kepler_elements[2]
+    ecc = kepler_elements[3]
+    inc = kepler_elements[4]
+    
+    if trunc_mode:
+        dr = (colliders[1].position - colliders[0].position).length()
+        body_a_zams = ZAMS_radius(colliders[0].mass)
+        body_b_zams = ZAMS_radius(colliders[1].mass)
+        rcoll = body_a_zams + body_b_zams
+        
+        printed = False
+        if dr > rcoll:
+            q = sma * (1 - ecc)
+            rtrunc_i, rtrunc_j = _apply_truncation(
+                q, colliders[0].mass, colliders[1].mass
+                )
+            for collider, rtrunc in zip(colliders, [rtrunc_i, rtrunc_j]):
+                if rtrunc >= collider.Rout:
+                    continue
+                if not printed:
+                    print(f"   dr = {dr.value_in(units.au):.2f} au, q = {q.value_in(units.au):.2f} au")
+                    printed = True
+                print(f"    Disk truncation: {collider.Rout.value_in(units.au):.2f} au --> {rtrunc.value_in(units.au):.2f} au")
+                collider.Rout = rtrunc
+                collider.unmodified_radius = _get_new_radius(collider, bodies.mass.max())
+                printed = True
+
+            colliders.radius = colliders.radius / 3.  # Tuning parameter to reduce number of collisions and overhead
+            
+        else:
+            _log_collision(output, model_time, colliders, sma, ecc, inc)
+            new_particle = _create_remnant(colliders)
+
+            bodies.remove_particles(colliders)
+            bodies.add_particles(new_particle)
+            
+    else:
+        _log_collision(output, model_time, colliders, sma, ecc, inc)
+        new_particle = _create_remnant(colliders)
 
         bodies.remove_particles(colliders)
         bodies.add_particles(new_particle)
@@ -271,10 +288,11 @@ def run_code(
     
     # Read initial cluster file
     bodies = read_set_from_file(input_file)
-    bodies = bodies[bodies.mass > MASS_MIN][:250]
+    bodies = bodies[bodies.mass > MASS_MIN]
     bodies.Rout = get_disk_outer_edge(bodies.mass)
     if trunc_mode == 1:
         bodies.radius = bodies.Rout / 0.28 * (bodies.mass.max() / bodies.mass) ** 0.32
+        bodies.unmodified_radius = bodies.radius.copy()
 
     diskless = bodies[
         (bodies.mass < MASS_MIN) | (bodies.mass > MASS_MAX)
@@ -322,6 +340,11 @@ def run_code(
     if dt_bridge is None:
         dt_bridge = diag_time
 
+    import matplotlib.pyplot as plt
+    disks = np.sort(bodies.Rout.value_in(units.au))
+    y = np.arange(len(disks)) / len(disks)
+    plt.plot(disks, y)
+    
     snap_no = 0
     coll_no = 0
     time = 0.0 | units.yr
@@ -355,8 +378,11 @@ def run_code(
                     bodies.synchronize_to(gravity.particles)
                     bodies.synchronize_to(stellar.particles)
                     chnl_local_to_grav.copy()
-                    assert len(bodies) == len(gravity.particles) == len(stellar.particles), "Particle counts must match after collision handling"
-        
+
+        if trunc_mode == 1:
+            bodies.radius = bodies.unmodified_radius
+            chnl_local_to_grav.copy()
+
         stellar.evolve_model(time)
         chnl_star_to_grav.copy()
         chnl_grav_to_local.copy()
@@ -367,8 +393,7 @@ def run_code(
         _get_background_radiation(bodies)
         if trunc_mode == 0:
             truncate_disks(bodies, dt_bridge, verbose)
-        
-        ### JIJ BENT HIER
+
         if gravity.model_time >= next_diag_time:
             snap_no += 1
             next_diag_time += diag_time
@@ -385,7 +410,15 @@ def run_code(
                 close_file=True,
                 overwrite_file=True,
             )
-
+    
+    disks = np.sort(bodies.Rout.value_in(units.au))
+    y = np.arange(len(disks)) / len(disks)
+    plt.plot(disks, y)
+    plt.xlabel("Disk outer radius (au)")
+    plt.ylabel("Cumulative fraction")
+    plt.xscale("log")
+    plt.show()
+    
     gravity.stop()
     stellar.stop()
 

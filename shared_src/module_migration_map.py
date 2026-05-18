@@ -1,13 +1,11 @@
 import numpy as np
-import matplotlib.pyplot as plt
-from amuse.units import units, constants
+from amuse.units import units
 from amuse.datamodel import Particles, Particle, new_regular_grid
-from venice_src.venice import Venice
 
-from extra_funcs import *
-from migration_map_paadekooper import cal_tau_I, cal_temperature
+from shared_src.extra_funcs import dynamical_mass, Rhills
+from shared_src.migration_map_paadekooper import cal_tau_I
+from shared_src.params import GAMMA
 
-from params import GAMMA
 
 def check_resonance(planets, planetsmass, j_values):
     """
@@ -30,17 +28,19 @@ def check_resonance(planets, planetsmass, j_values):
             planets[i+1] = planets[i] * ((j+1)/j)**(2/3)
     return planets
 
-class nonisothermal_Migration:
 
-    def __init__ (self):
-        # need to initialize disk, planet, star, disk lifetime
+class nonisothermal_Migration:
+    def __init__ (self, timestep, ndisk_cells):
+        """Class to handle non-isothermal Type I migration using Paardekooper et al. (2011)."""
         self.planets = Particles()
         self.planets.add_calculated_attribute('dynamical_mass', dynamical_mass)
+        
+        # DEBUG - Why is it fixed for Solar mass star?
         self.star = Particle(mass=1|units.MSun)
         self.star_teff = 5775 | units.K
         self.model_time = 0. | units.Myr
 
-        self.disk = new_regular_grid(([int(pre_ndisk)]),[1])
+        self.disk = new_regular_grid(([int(ndisk_cells)]),[1])
         self.disk.surface_gas = 100 | units.g/units.cm**2
         self.disk.surface_solid = 10 | units.g/units.cm**2
         self.disk.temperature = 10 | units.K
@@ -48,9 +48,7 @@ class nonisothermal_Migration:
         self.disk.alpha = 2e-3
 
         self.gamma = GAMMA
-
-        self.dt = pre_dt
-
+        self.dt = timestep
         self.eta = 0.1 # control the timestep
         
     def set_time_step(self, tau_I, model_time_i, end_time):
@@ -117,146 +115,3 @@ class nonisothermal_Migration:
                 break
         
         self.model_time = end_time
-
-
-#---------------------------------------------
-
-def setup_single_pps (timestep, verbose=False):
-
-    # Initiate Venice
-    system = Venice()
-    system.verbose = verbose
-
-    # Initialize codes
-    migration = nonisothermal_Migration()
-
-    # Add codes
-    system.add_code(migration)
-
-    # Set coupling timestep; matrix is symmetric, so no need to set [1,0]
-    system.timestep_matrix = timestep
-
-    return system, migration # core_accretion, typeI_migration
-
-
-def run_single_pps (ax1, disk, planets, star_mass, star_radius, dt, end_time, dt_plot):
-
-    system, _ = setup_single_pps(dt)
-
-    system.codes[0].planets.add_particles(planets)
-    system.codes[0].disk = disk
-    system.codes[0].star.mass = star_mass
-    system.codes[0].star.radius = star_radius
-
-    N_plot_steps = int(end_time/dt_plot)+1
-    t = np.zeros((N_plot_steps, len(planets))) | units.Myr
-    a = np.zeros((N_plot_steps, len(planets))) | units.au
-    M = np.zeros((N_plot_steps, len(planets))) | units.MEarth
-
-    for i in range(N_plot_steps):
-        system.codes[0].evolve_model( (i) * dt_plot )
-        print ("Time(/Myr)", system.codes[0].model_time.value_in(units.Myr), "End Time(/Myr)", end_time.value_in(units.Myr), 
-               "Planet sma/au", system.codes[0].planets.semimajor_axis.value_in(units.AU))
-
-        t[i] = system.codes[0].model_time
-        a[i] = system.codes[0].planets.semimajor_axis
-        M[i] = system.codes[0].planets.dynamical_mass
-
-    for i in range(len(planets)):
-        ax1.plot(a[:,i].value_in(units.au), M[:,i].value_in(units.MEarth), 'ko-', linewidth=2, alpha=0.7)
-
-    ax2 = plt.subplot(2,1,2)
-    ax2.plot(system.codes[0].disk.position.value_in(units.AU), 
-                    system.codes[0].disk.surface_gas.value_in(units.g/units.cm**2))
-
-    ax2.set_xlabel('$a [au]$')
-    ax2.set_ylabel(r'$\Sigma_g$[$g/cm^{2}$]')
-    ax2.set_xscale('log')
-    ax2.set_yscale('log')
-    ax2.set_ylim(1,1e4)
-    ax2.set_xlim(1e-2, 1e2)
-    return system
-
-
-if __name__ == '__main__':
-
-    M = [1, 2, 4, 10, 1000] | units.MEarth
-    a = [10., 10., 10, 10, 10] | units.AU
-
-    planets = Particles(len(M),
-        core_mass=M,
-        envelope_mass = 0 |units.g,
-        semimajor_axis = a
-    )
-    planets.add_calculated_attribute('dynamical_mass', dynamical_mass)
-
-    dt = 4 | units.kyr
-    end_time = 10000 | units.kyr
-    dt_plot = end_time/100
-    disk = new_regular_grid(([pre_ndisk]), [1]|units.au)
-
-    #star
-    M_star=1|units.MSun
-    R_star=1|units.RSun
-    Teff = 5770|units.K
-
-    #disk
-    Rdisk_in = 0.01 | units.au
-    Rdisk_out = 500 | units.au
-    beta_T = 3/7
-    fDG = 0.0196
-    mu = 2.3
-    gamma = 7/5
-    alpha = 2e-3
-
-    disk = new_regular_grid(([pre_ndisk]), [1]|units.au)
-    disk.position = Rdisk0(Rdisk_in, Rdisk_out, pre_ndisk)
-    disk.alpha = alpha
-    disk.gamma = gamma
-
-    disk_mass   = 0.1 * M_star
-    disk_radius = Rdisk_out
-
-    sigma0 = disk_mass / (2.*np.pi * disk_radius**2. * (1. - np.exp(-1.)))
-    sigma = sigma0 * disk_radius/disk.position * np.exp(-disk.position/disk_radius)
-    sigma[ disk.position > disk_radius*2/3 ] = 1e-12 | units.g/units.cm**2 # sharp edge
-
-    disk.surface_gas = sigma/10
-    disk.surface_solid = disk.surface_gas*fDG
-
-    ## calculate temperature
-    temp1 = 150 | units.K
-    temp_d = temp1*(disk.position.value_in(units.au))**(-beta_T)
-
-    # temp_d = np.maximum(temp1*(disk.position.value_in(units.au))**(-beta_T), 100) | units.K
-    # dtgr = disk.surface_solid/disk.surface_gas
-    # temp_d = np.array(cal_temperature(disk.position.value_in(units.cm),M_star.value_in(units.g), R_star.value_in(units.cm),
-    #                                       Teff.value_in(units.K), disk.alpha[0], disk.surface_gas.value_in(units.g/units.cm**2), dtgr)) |units.K
- 
-    disk.temperature = temp_d.reshape((pre_ndisk,1))
-    disk.scale_height = sound_speed(disk.temperature, mu)/np.sqrt( constants.G * M_star / disk.position**3)
-    
-    from test_migration_map import access_migration_map
-    rp = (disk.position[:-1]+disk.position[1:])/2
-
-    mp = 10**np.linspace(-1,3,200) | units.MEarth
-    X,Y = np.meshgrid(rp.value_in(units.au),mp.value_in(units.MEarth))
-    Z=[]
-    
-    Mig_rate = []
-    from tqdm import *
-
-    for i, M_planet in enumerate(tqdm(mp)):
-        Zi = []
-        Mig_ratei = []
-        for j, rpj in enumerate(rp):
-            # print(rpj, M_planet, M_star, gamma, disk.surface_gas, disk.surface_solid, temp_d, disk.position, alpha)
-            Zj, Mig_ratej = access_migration_map(rpj[0], M_planet, M_star, gamma, disk.surface_gas, disk.surface_solid, temp_d, disk.position, alpha)
-
-            Zi.append(Zj[0])
-            Mig_ratei.append(Mig_ratej[0].value_in(units.yr**-1))
-        Z.append(Zi)
-        Mig_rate.append(Mig_ratei)
-
-    Z=np.array(Z)
-    Mig_rate=np.array(Mig_rate)

@@ -3,20 +3,20 @@ import queue
 
 from amuse.units import units, constants
 
-from disk_in_clusters.FRIED_interp import FRIED_interp
+from shared_src.params import (
+    FRAGMENT_V, SUBL_TEMP, CFL, A0, RHO_DUST,
+    G0, SIGMA_FLOOR
+)
 
 
 code_queue = queue.Queue()
 
-G0 = 1.6e-3 * units.erg / units.s / units.cm**2
-SIGMA_FLOOR = 1e-12 | units.g / units.cm**2  # arXiv:2109.01456
-
 DustParameters = {  # arXiv:2302.03721
-    'uf': 10.0 | units.m / units.s,
-    'rho_s': 1.0 | units.g / units.cm**3,
-    'a0': 1e-7 | units.m,
-    'Tsubl': 1e9 | units.K,
-    'CFL': 1e99
+    'uf': FRAGMENT_V | units.cm/units.s,
+    'rho_s': RHO_DUST,
+    'a0': A0,
+    'Tsubl': SUBL_TEMP,
+    'CFL': CFL
 }
 
 
@@ -35,8 +35,7 @@ class Disk:
         a_min=1e-8|units.m,
         ipe_flag=True,
         epe_flag=True,
-        critical_radius=None,
-        data_file=None
+        critical_radius=None
     ):
         """
         Initialise a protoplanetary disk.
@@ -55,7 +54,7 @@ class Disk:
             ipe_flag (bool):          Whether to include internal photoevaporation.
             epe_flag (bool):          Whether to include external photoevaporation.
             critical_radius (float):  Characteristic radius for the exponential cutoff in the column density profile.
-            data_file (str):          Path to FRIED grid data for external photoevaporation"""
+        """
         self.model_time = 0.0 | units.Myr
         self.central_mass = central_mass
         self.mu = mu
@@ -97,11 +96,6 @@ class Disk:
         )
 
         self._disk_dust_mass = self.delta * self.disk_gas_mass
-
-        if data_file is not None:
-            self.interpolator = FRIED_interp(verbosity=False, folder=data_file)
-        else:
-            self.interpolator = None
 
     def assign_code(self, viscous_code):
         self.viscous = viscous_code
